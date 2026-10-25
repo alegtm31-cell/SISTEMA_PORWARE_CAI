@@ -1,0 +1,4 @@
+cedula,nombre,apellido,email,password,rol
+V-12345678,Carlos,Rodriguez,admin@cai.local,admin123,ADMINISTRADOR
+V-23456789,Maria,Fernandez,mfernandez@cai.local,empleado2024,EMPLEADO
+V-34567890,Jose,Hernandez,seguridad@cai.local,guardiaPass1,SEGURIDAD
