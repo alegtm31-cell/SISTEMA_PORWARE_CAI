@@ -23,6 +23,7 @@ enum EstadoVisita {
   AUTORIZADA
   FINALIZADA
   DENEGADA
+  CANCELADA
 }
 
 model Usuario {
@@ -33,6 +34,11 @@ model Usuario {
   email          String      @unique
   password       String
   rol            Role        @default(EMPLEADO)
+  cargo          String?
+  departamento   String?
+  telefonoMovil  String?
+  telefonoFijo   String?
+  fotoUrl        String?
   bloqueado      Boolean     @default(false)
   motivoBloqueo  String?
   createdAt      DateTime    @default(now())
@@ -50,6 +56,10 @@ model Invitado {
   nombre        String
   apellido      String
   empresa       String?
+  placa         String?
+  telefono      String?
+  motivo        String?
+  fotoUrl       String?
   bloqueado     Boolean     @default(false)
   motivoBloqueo String?
   empleadoId    String
@@ -68,6 +78,7 @@ model Visita {
   empleado    Usuario      @relation("VisitasAutorizadas", fields: [empleadoId], references: [id], onDelete: Cascade)
   fecha       DateTime     @default(now())
   motivo      String?
+  placa       String?
   estado      EstadoVisita @default(PENDIENTE)
   observacion String?
   createdAt   DateTime     @default(now())
@@ -95,5 +106,6 @@ model Noticia {
   id        String   @id @default(uuid())
   titulo    String
   contenido String
+  imagenUrl String?
   createdAt DateTime @default(now())
 }

@@ -30,6 +30,7 @@ export class NoticiasService {
       data: {
         titulo: dto.titulo.trim(),
         contenido: dto.contenido.trim(),
+        imagenUrl: dto.imagenUrl ? dto.imagenUrl.trim() : null,
       },
     });
   }
@@ -43,6 +44,7 @@ export class NoticiasService {
     const data: any = {};
     if (dto.titulo) data.titulo = dto.titulo.trim();
     if (dto.contenido) data.contenido = dto.contenido.trim();
+    if (dto.imagenUrl !== undefined) data.imagenUrl = dto.imagenUrl ? dto.imagenUrl.trim() : null;
 
     return this.prisma.noticia.update({
       where: { id },

@@ -11,7 +11,12 @@ export interface Usuario {
   apellido: string;
   email: string;
   rol: Role;
+  cargo?: string;
+  departamento?: string;
+  telefonoMovil?: string;
+  telefonoFijo?: string;
   fotoUrl?: string;
+  bloqueado?: boolean;
   estadoSeguridad?: EstadoSeguridad;
   motivoBloqueo?: string;
   createdAt?: string;
@@ -28,8 +33,12 @@ export interface Invitado {
   nombre: string;
   apellido: string;
   empresa?: string | null;
+  placa?: string | null;
+  telefono?: string | null;
+  motivo?: string | null;
   empleadoId: string;
   fotoUrl?: string;
+  bloqueado?: boolean;
   estadoSeguridad?: EstadoSeguridad;
   motivoBloqueo?: string;
   empleado?: {
@@ -78,6 +87,7 @@ export interface Noticia {
   id: string;
   titulo: string;
   contenido: string;
+  imagenUrl?: string | null;
   createdAt: string;
 }
 

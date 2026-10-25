@@ -45,6 +45,10 @@ export class UsersService {
           apellido: true,
           email: true,
           rol: true,
+          cargo: true,
+          departamento: true,
+          telefonoMovil: true,
+          telefonoFijo: true,
           bloqueado: true,
           motivoBloqueo: true,
           createdAt: true,
@@ -82,6 +86,12 @@ export class UsersService {
         apellido: true,
         email: true,
         rol: true,
+        cargo: true,
+        departamento: true,
+        telefonoMovil: true,
+        telefonoFijo: true,
+        bloqueado: true,
+        motivoBloqueo: true,
         createdAt: true,
         updatedAt: true,
         invitaciones: {
@@ -133,6 +143,10 @@ export class UsersService {
         email: cleanEmail,
         password: hashedPassword,
         rol: dto.rol || Role.EMPLEADO,
+        cargo: dto.cargo ? dto.cargo.trim() : null,
+        departamento: dto.departamento ? dto.departamento.trim() : null,
+        telefonoMovil: dto.telefonoMovil ? dto.telefonoMovil.trim() : null,
+        telefonoFijo: dto.telefonoFijo ? dto.telefonoFijo.trim() : null,
       },
       select: {
         id: true,
@@ -141,6 +155,10 @@ export class UsersService {
         apellido: true,
         email: true,
         rol: true,
+        cargo: true,
+        departamento: true,
+        telefonoMovil: true,
+        telefonoFijo: true,
         createdAt: true,
       },
     });
@@ -181,6 +199,11 @@ export class UsersService {
       data.password = await bcrypt.hash(dto.password, 10);
     }
 
+    if (dto.cargo !== undefined) data.cargo = dto.cargo ? dto.cargo.trim() : null;
+    if (dto.departamento !== undefined) data.departamento = dto.departamento ? dto.departamento.trim() : null;
+    if (dto.telefonoMovil !== undefined) data.telefonoMovil = dto.telefonoMovil ? dto.telefonoMovil.trim() : null;
+    if (dto.telefonoFijo !== undefined) data.telefonoFijo = dto.telefonoFijo ? dto.telefonoFijo.trim() : null;
+
     return this.prisma.usuario.update({
       where: { id },
       data,
@@ -191,6 +214,10 @@ export class UsersService {
         apellido: true,
         email: true,
         rol: true,
+        cargo: true,
+        departamento: true,
+        telefonoMovil: true,
+        telefonoFijo: true,
         updatedAt: true,
       },
     });

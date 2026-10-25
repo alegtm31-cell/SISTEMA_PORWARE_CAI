@@ -114,6 +114,96 @@ export const api = {
     }
   },
 
+  // Paridad sistema original: Verificación de Pre-registro por cédula
+  async checkPreRegistro(cedula: string): Promise<{
+    preregistrado: boolean;
+    completado: boolean;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    email: string;
+    cargo?: string;
+    departamento?: string;
+  }> {
+    const res = await fetch(`${getApiBase()}/auth/check-preregistro/${encodeURIComponent(cedula.trim())}`);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Cédula no pre-registrada por la administración');
+    }
+    return await res.json();
+  },
+
+  // Paridad sistema original: Auto-registro del empleado
+  async completeRegistro(data: {
+    cedula: string;
+    password: string;
+    email?: string;
+    cargo?: string;
+    departamento?: string;
+    telefonoMovil?: string;
+    telefonoFijo?: string;
+  }) {
+    const res = await fetch(`${getApiBase()}/auth/complete-registro`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al completar auto-registro');
+    }
+
+    const resData = await res.json();
+    localStorage.setItem('cai_token', resData.accessToken);
+    localStorage.setItem('cai_user', JSON.stringify(resData.user));
+    return { success: true, user: resData.user, token: resData.accessToken };
+  },
+
+  // Perfil del usuario autenticado
+  async getProfile(): Promise<Usuario> {
+    const res = await fetch(`${getApiBase()}/auth/profile`, {
+      headers: this.getHeaders(),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al obtener perfil');
+    }
+
+    const user = await res.json();
+    localStorage.setItem('cai_user', JSON.stringify(user));
+    return user;
+  },
+
+  // Paridad sistema original: Modificar mi propio perfil
+  async updateProfile(data: {
+    nombre?: string;
+    apellido?: string;
+    email?: string;
+    cargo?: string;
+    departamento?: string;
+    telefonoMovil?: string;
+    telefonoFijo?: string;
+    currentPassword?: string;
+    newPassword?: string;
+  }): Promise<Usuario> {
+    const res = await fetch(`${getApiBase()}/auth/profile`, {
+      method: 'PATCH',
+      headers: this.getHeaders(),
+      body: JSON.stringify(data),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al actualizar perfil');
+    }
+
+    const updated = await res.json();
+    localStorage.setItem('cai_user', JSON.stringify(updated));
+    return updated;
+  },
+
   // Garita: Check-in / Check-out real
   async registerAccess(targetId: string, isGuest: boolean, tipo: 'ENTRADA' | 'SALIDA', observacion?: string) {
     const res = await fetch(`${getApiBase()}/access/${tipo === 'ENTRADA' ? 'check-in' : 'check-out'}`, {
@@ -232,7 +322,16 @@ export const api = {
     return await res.json();
   },
 
-  async createInvitado(data: { cedula: string; nombre: string; apellido: string; empresa?: string; empleadoId?: string }): Promise<Invitado> {
+  async createInvitado(data: {
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    empresa?: string;
+    placa?: string;
+    telefono?: string;
+    motivo?: string;
+    empleadoId?: string;
+  }): Promise<Invitado> {
     const res = await fetch(`${getApiBase()}/invitados`, {
       method: 'POST',
       headers: this.getHeaders(),
@@ -271,7 +370,7 @@ export const api = {
     return await res.json();
   },
 
-  async createNoticia(data: { titulo: string; contenido: string }): Promise<Noticia> {
+  async createNoticia(data: { titulo: string; contenido: string; imagenUrl?: string }): Promise<Noticia> {
     const res = await fetch(`${getApiBase()}/noticias`, {
       method: 'POST',
       headers: this.getHeaders(),

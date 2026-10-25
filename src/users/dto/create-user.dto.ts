@@ -53,5 +53,37 @@ export class CreateUserDto {
   @IsOptional()
   @IsEnum(Role, { message: 'El rol debe ser ADMINISTRADOR, EMPLEADO o SEGURIDAD' })
   rol?: Role;
+
+  @ApiPropertyOptional({
+    description: 'Cargo o posición en la empresa',
+    example: 'Supervisor de Planta',
+  })
+  @IsOptional()
+  @IsString({ message: 'El cargo debe ser texto' })
+  cargo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Departamento o área operativa',
+    example: 'Mantenimiento y Garitas',
+  })
+  @IsOptional()
+  @IsString({ message: 'El departamento debe ser texto' })
+  departamento?: string;
+
+  @ApiPropertyOptional({
+    description: 'Teléfono celular o móvil de contacto',
+    example: '0414-1234567',
+  })
+  @IsOptional()
+  @IsString({ message: 'El teléfono móvil debe ser texto' })
+  telefonoMovil?: string;
+
+  @ApiPropertyOptional({
+    description: 'Teléfono fijo u oficina',
+    example: '0241-7654321',
+  })
+  @IsOptional()
+  @IsString({ message: 'El teléfono fijo debe ser texto' })
+  telefonoFijo?: string;
 }
 

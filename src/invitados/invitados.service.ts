@@ -29,6 +29,9 @@ export class InvitadosService {
         nombre: dto.nombre.trim(),
         apellido: dto.apellido.trim(),
         empresa: dto.empresa ? dto.empresa.trim() : null,
+        placa: dto.placa ? dto.placa.trim().toUpperCase() : undefined,
+        telefono: dto.telefono ? dto.telefono.trim() : undefined,
+        motivo: dto.motivo ? dto.motivo.trim() : undefined,
         empleadoId: hostId,
       },
       create: {
@@ -36,6 +39,9 @@ export class InvitadosService {
         nombre: dto.nombre.trim(),
         apellido: dto.apellido.trim(),
         empresa: dto.empresa ? dto.empresa.trim() : null,
+        placa: dto.placa ? dto.placa.trim().toUpperCase() : null,
+        telefono: dto.telefono ? dto.telefono.trim() : null,
+        motivo: dto.motivo ? dto.motivo.trim() : null,
         empleadoId: hostId,
       },
       include: {
@@ -167,6 +173,9 @@ export class InvitadosService {
     if (dto.apellido) data.apellido = dto.apellido.trim();
     if (dto.empresa !== undefined) data.empresa = dto.empresa ? dto.empresa.trim() : null;
     if (dto.cedula) data.cedula = dto.cedula.trim();
+    if (dto.placa !== undefined) data.placa = dto.placa ? dto.placa.trim().toUpperCase() : null;
+    if (dto.telefono !== undefined) data.telefono = dto.telefono ? dto.telefono.trim() : null;
+    if (dto.motivo !== undefined) data.motivo = dto.motivo ? dto.motivo.trim() : null;
 
     // Solo admin puede transferir anfitrión
     if (dto.empleadoId && currentUser?.rol === 'ADMINISTRADOR') {

@@ -30,6 +30,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
     empresa: '',
     empleadoId: currentUser?.id || '',
     telefono: '',
+    placa: '',
     motivo: 'Familiar',
   });
 
@@ -69,6 +70,9 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
       nombre: form.nombre.trim(),
       apellido: form.apellido.trim(),
       empresa: form.empresa.trim() || form.motivo,
+      placa: form.placa.trim().toUpperCase() || undefined,
+      telefono: form.telefono.trim() || undefined,
+      motivo: form.motivo.trim() || undefined,
       empleadoId: form.empleadoId || currentUser?.id || employees[0]?.id || '',
     };
 
@@ -85,6 +89,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
       empresa: '',
       empleadoId: currentUser?.id || employees[0]?.id || '',
       telefono: '',
+      placa: '',
       motivo: 'Familiar',
     });
     loadData();
@@ -103,16 +108,19 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
       year: 'numeric',
     });
 
+    const vehicleText = inv.placa ? `🚗 *Vehículo / Placa:* ${inv.placa}\n` : '';
     const mensaje = `🏢 *PASE DE ACCESO - SISTEMA CAI*\n\n` +
       `¡Hola *${inv.nombre}*! Se ha generado tu pase de acceso:\n\n` +
       `👤 *Visitante:* ${inv.nombre} ${inv.apellido}\n` +
       `🪪 *Código de Acceso / Cédula:* ${inv.cedula}\n` +
+      vehicleText +
       `🏡 *Anfitrión:* ${hostName}\n` +
       `📅 *Fecha:* ${fechaHoy}\n` +
       `📍 *Motivo:* ${inv.empresa || 'Visita Autorizada'}\n\n` +
       `*Instrucciones:* Muestra tu cédula (${inv.cedula}) o este mensaje en la garita de seguridad para habilitar tu ingreso.`;
 
-    const cleanPhone = form.telefono.replace(/[^0-9]/g, '');
+    const targetPhone = inv.telefono || form.telefono;
+    const cleanPhone = (targetPhone || '').replace(/[^0-9]/g, '');
     const waUrl = cleanPhone
       ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(mensaje)}`
       : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
@@ -269,18 +277,33 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
               />
             </div>
 
-            <div>
-              <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
-                WhatsApp del Visitante (Para envío directo)
-              </label>
-              <input
-                type="tel"
-                placeholder="+58 412 1234567"
-                className="form-input"
-                style={{ padding: '8px 12px', fontSize: '0.85rem' }}
-                value={form.telefono}
-                onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-              />
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                  WhatsApp (Para envío directo)
+                </label>
+                <input
+                  type="tel"
+                  placeholder="+58 412 1234567"
+                  className="form-input"
+                  style={{ padding: '8px 12px', fontSize: '0.85rem' }}
+                  value={form.telefono}
+                  onChange={(e) => setForm({ ...form, telefono: e.target.value })}
+                />
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '3px' }}>
+                  Placa Vehicular (Opcional)
+                </label>
+                <input
+                  type="text"
+                  placeholder="AB123CD"
+                  className="form-input"
+                  style={{ padding: '8px 12px', fontSize: '0.85rem', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}
+                  value={form.placa}
+                  onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })}
+                />
+              </div>
             </div>
 
             <div>
@@ -413,6 +436,11 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
                   <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginTop: '4px' }}>
                     {activePass.empresa || 'Visita Personal'}
                   </div>
+                  {activePass.placa && (
+                    <div style={{ fontSize: '0.76rem', color: 'var(--cyan)', marginTop: '2px', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
+                      🚗 Placa: {activePass.placa}
+                    </div>
+                  )}
                   {activePass.empleado && (
                     <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)', marginTop: '2px' }}>
                       Anfitrión: {activePass.empleado.nombre} {activePass.empleado.apellido}
@@ -519,7 +547,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
                             {inv.nombre} {inv.apellido}
                           </div>
                           <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                            {inv.cedula} {inv.empresa ? `• ${inv.empresa}` : ''}
+                            {inv.cedula} {inv.placa ? `• 🚗 ${inv.placa}` : ''} {inv.empresa ? `• ${inv.empresa}` : ''}
                           </div>
                         </div>
                       </div>

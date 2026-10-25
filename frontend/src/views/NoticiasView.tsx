@@ -3,7 +3,6 @@ import { Plus, Calendar, Bell, X, Check } from 'lucide-react';
 import { api } from '../services/api';
 import type { Noticia, Role } from '../types';
 
-
 interface NoticiasViewProps {
   userRole?: Role;
 }
@@ -12,7 +11,7 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
   const [noticias, setNoticias] = useState<Noticia[]>([]);
   const [loading, setLoading] = useState(true);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [form, setForm] = useState({ titulo: '', contenido: '' });
+  const [form, setForm] = useState({ titulo: '', contenido: '', imagenUrl: '' });
 
   const loadNoticias = async () => {
     setLoading(true);
@@ -32,9 +31,13 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
     e.preventDefault();
     if (!form.titulo || !form.contenido) return;
 
-    await api.createNoticia(form);
+    await api.createNoticia({
+      titulo: form.titulo.trim(),
+      contenido: form.contenido.trim(),
+      imagenUrl: form.imagenUrl.trim() || undefined,
+    });
     setIsModalOpen(false);
-    setForm({ titulo: '', contenido: '' });
+    setForm({ titulo: '', contenido: '', imagenUrl: '' });
     loadNoticias();
   };
 
@@ -102,6 +105,17 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
                   </div>
                 </div>
 
+                {n.imagenUrl && (
+                  <div style={{ marginBottom: '14px', borderRadius: '8px', overflow: 'hidden', maxHeight: '180px', border: '1px solid var(--border-subtle)' }}>
+                    <img
+                      src={n.imagenUrl}
+                      alt={n.titulo}
+                      style={{ width: '100%', height: '180px', objectFit: 'cover' }}
+                      onError={(e) => { (e.currentTarget as HTMLElement).style.display = 'none'; }}
+                    />
+                  </div>
+                )}
+
                 <h3 style={{ fontSize: '1.15rem', fontWeight: 700, color: 'var(--text-main)', lineHeight: 1.35, marginBottom: '10px' }}>
                   {n.titulo}
                 </h3>
@@ -131,6 +145,7 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
             alignItems: 'center',
             justifyContent: 'center',
             zIndex: 100,
+            padding: '16px',
           }}
         >
           <div className="glass-panel" style={{ width: '480px', padding: '28px', background: 'var(--bg-surface)' }}>
@@ -158,6 +173,19 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
                   placeholder="Ej: Nuevos horarios de acceso vehicular"
                   value={form.titulo}
                   onChange={(e) => setForm({ ...form, titulo: e.target.value })}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  URL de Imagen Ilustrativa (Opcional - Paridad sistema original)
+                </label>
+                <input
+                  type="url"
+                  className="form-input"
+                  placeholder="https://ejemplo.com/comunicado.jpg"
+                  value={form.imagenUrl}
+                  onChange={(e) => setForm({ ...form, imagenUrl: e.target.value })}
                 />
               </div>
 

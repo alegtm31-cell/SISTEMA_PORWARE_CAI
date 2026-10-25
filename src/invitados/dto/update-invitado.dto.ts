@@ -35,6 +35,30 @@ export class UpdateInvitadoDto {
   empresa?: string;
 
   @ApiPropertyOptional({
+    description: 'Placa del vehículo',
+    example: 'AB123CD',
+  })
+  @IsOptional()
+  @IsString()
+  placa?: string;
+
+  @ApiPropertyOptional({
+    description: 'Teléfono del visitante',
+    example: '04149876543',
+  })
+  @IsOptional()
+  @IsString()
+  telefono?: string;
+
+  @ApiPropertyOptional({
+    description: 'Motivo de la visita',
+    example: 'Reunión de coordinación',
+  })
+  @IsOptional()
+  @IsString()
+  motivo?: string;
+
+  @ApiPropertyOptional({
     description: 'ID (UUID) del nuevo empleado anfitrión',
     example: '550e8400-e29b-41d4-a716-446655440000',
   })
@@ -42,4 +66,3 @@ export class UpdateInvitadoDto {
   @IsString({ message: 'El ID del empleado anfitrión debe ser texto' })
   empleadoId?: string;
 }
-

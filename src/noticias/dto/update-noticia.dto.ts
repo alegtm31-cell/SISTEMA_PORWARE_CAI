@@ -17,5 +17,13 @@ export class UpdateNoticiaDto {
   @IsOptional()
   @IsString({ message: 'El contenido debe ser texto' })
   contenido?: string;
+
+  @ApiPropertyOptional({
+    description: 'URL o ruta de imagen adjunta al comunicado',
+    example: '/uploads/noticias/comunicado1.png',
+  })
+  @IsOptional()
+  @IsString({ message: 'La URL de la imagen debe ser texto' })
+  imagenUrl?: string;
 }
 

@@ -1,8 +1,16 @@
 import React, { useState } from 'react';
-import { ShieldCheck, LogIn, X, AlertCircle } from 'lucide-react';
+import {
+  ShieldCheck,
+  LogIn,
+  X,
+  AlertCircle,
+  UserCheck,
+  CheckCircle2,
+  Lock,
+  ArrowRight,
+} from 'lucide-react';
 import { api } from '../services/api';
 import type { Usuario } from '../types';
-
 
 interface LoginModalProps {
   isOpen: boolean;
@@ -11,14 +19,41 @@ interface LoginModalProps {
 }
 
 export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSuccess }) => {
+  const [activeTab, setActiveTab] = useState<'login' | 'registro'>('login');
+
+  // Login form state
   const [identifier, setIdentifier] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
+  // Auto-registro state
+  const [regCedula, setRegCedula] = useState('');
+  const [regChecking, setRegChecking] = useState(false);
+  const [preData, setPreData] = useState<{
+    preregistrado: boolean;
+    completado: boolean;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    email: string;
+    cargo?: string;
+    departamento?: string;
+  } | null>(null);
+
+  const [regForm, setRegForm] = useState({
+    email: '',
+    cargo: '',
+    departamento: '',
+    telefonoMovil: '',
+    telefonoFijo: '',
+    password: '',
+    confirmPassword: '',
+  });
+
   if (!isOpen) return null;
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(null);
     setLoading(true);
@@ -37,9 +72,80 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
     }
   };
 
+  const handleCheckCedula = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+    if (!regCedula.trim()) return;
+
+    setRegChecking(true);
+    try {
+      const res = await api.checkPreRegistro(regCedula.trim());
+      if (res.completado) {
+        setError('Esta cédula ya tiene una contraseña y perfil activo. Por favor inicie sesión.');
+        setPreData(null);
+      } else {
+        setPreData(res);
+        setRegForm({
+          email: res.email || '',
+          cargo: res.cargo || '',
+          departamento: res.departamento || '',
+          telefonoMovil: '',
+          telefonoFijo: '',
+          password: '',
+          confirmPassword: '',
+        });
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Cédula no pre-registrada por Recursos Humanos o Administración.');
+      setPreData(null);
+    } finally {
+      setRegChecking(false);
+    }
+  };
+
+  const handleRegisterSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError(null);
+
+    if (!preData) return;
+
+    if (regForm.password.length < 6) {
+      setError('La contraseña debe tener al menos 6 caracteres');
+      return;
+    }
+
+    if (regForm.password !== regForm.confirmPassword) {
+      setError('Las contraseñas no coinciden');
+      return;
+    }
+
+    setLoading(true);
+    try {
+      const res = await api.completeRegistro({
+        cedula: preData.cedula,
+        password: regForm.password,
+        email: regForm.email.trim() || undefined,
+        cargo: regForm.cargo.trim() || undefined,
+        departamento: regForm.departamento.trim() || undefined,
+        telefonoMovil: regForm.telefonoMovil.trim() || undefined,
+        telefonoFijo: regForm.telefonoFijo.trim() || undefined,
+      });
+
+      if (res.success) {
+        onSuccess(res.user);
+        onClose();
+      }
+    } catch (err: any) {
+      setError(err?.message || 'Error al completar el auto-registro');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const quickLogin = (id: string, pass: string) => {
     setIdentifier(id);
     setPassword(pass);
+    setActiveTab('login');
   };
 
   return (
@@ -53,19 +159,25 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
         alignItems: 'center',
         justifyContent: 'center',
         zIndex: 100,
+        padding: '16px',
+        overflowY: 'auto',
       }}
     >
       <div
         className="glass-panel animate-fade-in"
         style={{
-          width: '440px',
-          padding: '34px',
+          width: '100%',
+          maxWidth: '460px',
+          padding: '28px',
           background: 'var(--bg-modal)',
           border: '1px solid var(--border-glow)',
           boxShadow: 'var(--panel-shadow-hover)',
+          maxHeight: '90vh',
+          overflowY: 'auto',
         }}
       >
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '18px' }}>
+        {/* Cabecera */}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px' }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
             <div
               style={{
@@ -82,13 +194,79 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
               <ShieldCheck size={22} />
             </div>
             <div>
-              <h2 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>Autenticación CAI</h2>
-              <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)' }}>Control de Acceso e Identificación</span>
+              <h2 style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>Autenticación CAI</h2>
+              <span style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>Control de Acceso e Identificación</span>
             </div>
           </div>
 
           <button type="button" className="btn-ghost" style={{ padding: '6px' }} onClick={onClose}>
             <X size={18} />
+          </button>
+        </div>
+
+        {/* Pestañas: Iniciar Sesión vs Primer Ingreso */}
+        <div
+          style={{
+            display: 'flex',
+            background: 'var(--bg-surface)',
+            borderRadius: '8px',
+            padding: '3px',
+            marginBottom: '16px',
+            border: '1px solid var(--border-subtle)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('login');
+              setError(null);
+            }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'login' ? 'var(--cyan)' : 'transparent',
+              color: activeTab === 'login' ? '#000' : 'var(--text-muted)',
+              fontWeight: activeTab === 'login' ? 700 : 500,
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <LogIn size={15} />
+            <span>Iniciar Sesión</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              setActiveTab('registro');
+              setError(null);
+            }}
+            style={{
+              flex: 1,
+              padding: '8px 12px',
+              borderRadius: '6px',
+              border: 'none',
+              background: activeTab === 'registro' ? 'var(--cyan)' : 'transparent',
+              color: activeTab === 'registro' ? '#000' : 'var(--text-muted)',
+              fontWeight: activeTab === 'registro' ? 700 : 500,
+              fontSize: '0.82rem',
+              cursor: 'pointer',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              gap: '6px',
+              transition: 'all 0.15s ease',
+            }}
+          >
+            <UserCheck size={15} />
+            <span>Primer Ingreso</span>
           </button>
         </div>
 
@@ -100,7 +278,7 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
               background: 'rgba(244, 63, 94, 0.15)',
               border: '1px solid rgba(244, 63, 94, 0.3)',
               color: '#fb7185',
-              fontSize: '0.85rem',
+              fontSize: '0.83rem',
               display: 'flex',
               alignItems: 'center',
               gap: '8px',
@@ -112,88 +290,267 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
           </div>
         )}
 
-        <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+        {/* TAB 1: LOGIN */}
+        {activeTab === 'login' && (
+          <>
+            <form onSubmit={handleLoginSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  Cédula o Correo Electrónico
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="Ej: admin@cai.local o V-12345678"
+                  value={identifier}
+                  onChange={(e) => setIdentifier(e.target.value)}
+                />
+              </div>
+
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  Contraseña
+                </label>
+                <input
+                  type="password"
+                  required
+                  className="form-input"
+                  placeholder="••••••••"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                />
+              </div>
+
+              <button type="submit" className="btn-primary" style={{ marginTop: '6px' }} disabled={loading}>
+                <LogIn size={18} />
+                <span>{loading ? 'Verificando...' : 'Entrar al Sistema'}</span>
+              </button>
+            </form>
+
+            {/* Cuentas Rápidas de Demostración */}
+            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
+              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700, marginBottom: '8px' }}>
+                Acceso Rápido de Prueba (Roles del Sistema)
+              </div>
+
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
+                  onClick={() => quickLogin('admin@cai.local', 'admin123')}
+                >
+                  <div style={{ textAlign: 'left' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>Carlos Rodríguez</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>admin@cai.local</span>
+                  </div>
+                  <span className="badge badge-admin">ADMIN</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
+                  onClick={() => quickLogin('seguridad@cai.local', 'guardiaPass1')}
+                >
+                  <div style={{ textAlign: 'left' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>José Hernández</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>seguridad@cai.local</span>
+                  </div>
+                  <span className="badge badge-seguridad">GARITA</span>
+                </button>
+
+                <button
+                  type="button"
+                  className="btn-ghost"
+                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
+                  onClick={() => quickLogin('mfernandez@cai.local', 'empleado2024')}
+                >
+                  <div style={{ textAlign: 'left' }}>
+                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>María Fernández</span>
+                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>mfernandez@cai.local</span>
+                  </div>
+                  <span className="badge badge-empleado">EMPLEADO</span>
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+
+        {/* TAB 2: PRIMER INGRESO (AUTO-REGISTRO POR CÉDULA) */}
+        {activeTab === 'registro' && (
           <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
-              Cédula o Correo Electrónico
-            </label>
-            <input
-              type="text"
-              required
-              className="form-input"
-              placeholder="Ej: admin@cai.local o V-12345678"
-              value={identifier}
-              onChange={(e) => setIdentifier(e.target.value)}
-            />
+            {!preData ? (
+              <form onSubmit={handleCheckCedula} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
+                  <span style={{ fontSize: '0.8rem', color: 'var(--text-muted)', lineHeight: '1.4' }}>
+                    Si eres empleado nuevo pre-registrado por Recursos Humanos o Administración, introduce tu cédula de identidad para configurar tu acceso.
+                  </span>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Cédula de Identidad
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="form-input"
+                    placeholder="Ej: V-12345678"
+                    value={regCedula}
+                    onChange={(e) => setRegCedula(e.target.value)}
+                  />
+                </div>
+
+                <button type="submit" className="btn-primary" disabled={regChecking}>
+                  <ArrowRight size={18} />
+                  <span>{regChecking ? 'Consultando nómina...' : 'Verificar Pre-Registro'}</span>
+                </button>
+              </form>
+            ) : (
+              <form onSubmit={handleRegisterSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div
+                  style={{
+                    padding: '12px',
+                    borderRadius: '8px',
+                    background: 'rgba(56, 189, 248, 0.1)',
+                    border: '1px solid rgba(56, 189, 248, 0.3)',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                  }}
+                >
+                  <CheckCircle2 size={20} color="var(--cyan)" />
+                  <div>
+                    <div style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                      {preData.nombre} {preData.apellido}
+                    </div>
+                    <div style={{ fontSize: '0.74rem', color: 'var(--text-muted)' }}>
+                      Cédula pre-registrada: {preData.cedula}
+                    </div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Cargo
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ej: Supervisor"
+                      value={regForm.cargo}
+                      onChange={(e) => setRegForm({ ...regForm, cargo: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Departamento
+                    </label>
+                    <input
+                      type="text"
+                      className="form-input"
+                      placeholder="Ej: Operaciones"
+                      value={regForm.departamento}
+                      onChange={(e) => setRegForm({ ...regForm, departamento: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Teléfono Móvil
+                    </label>
+                    <input
+                      type="tel"
+                      className="form-input"
+                      placeholder="0414-1234567"
+                      value={regForm.telefonoMovil}
+                      onChange={(e) => setRegForm({ ...regForm, telefonoMovil: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Teléfono Fijo (Opcional)
+                    </label>
+                    <input
+                      type="tel"
+                      className="form-input"
+                      placeholder="0241-1234567"
+                      value={regForm.telefonoFijo}
+                      onChange={(e) => setRegForm({ ...regForm, telefonoFijo: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                    Correo Electrónico
+                  </label>
+                  <input
+                    type="email"
+                    required
+                    className="form-input"
+                    value={regForm.email}
+                    onChange={(e) => setRegForm({ ...regForm, email: e.target.value })}
+                  />
+                </div>
+
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '8px' }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Nueva Contraseña
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Mínimo 6 caracteres"
+                      className="form-input"
+                      value={regForm.password}
+                      onChange={(e) => setRegForm({ ...regForm, password: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '0.74rem', color: 'var(--text-muted)', marginBottom: '3px' }}>
+                      Confirmar Contraseña
+                    </label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="Repetir clave"
+                      className="form-input"
+                      value={regForm.confirmPassword}
+                      onChange={(e) => setRegForm({ ...regForm, confirmPassword: e.target.value })}
+                    />
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ flex: 1 }}
+                    onClick={() => setPreData(null)}
+                  >
+                    Volver
+                  </button>
+                  <button
+                    type="submit"
+                    className="btn-primary"
+                    style={{ flex: 2 }}
+                    disabled={loading}
+                  >
+                    <Lock size={16} />
+                    <span>{loading ? 'Registrando...' : 'Finalizar Registro'}</span>
+                  </button>
+                </div>
+              </form>
+            )}
           </div>
-
-          <div>
-            <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
-              Contraseña
-            </label>
-            <input
-              type="password"
-              required
-              className="form-input"
-              placeholder="••••••••"
-              value={password}
-              onChange={(e) => setPassword(e.target.value)}
-            />
-          </div>
-
-          <button type="submit" className="btn-primary" style={{ marginTop: '8px' }} disabled={loading}>
-            <LogIn size={18} />
-            <span>{loading ? 'Verificando...' : 'Entrar al Sistema'}</span>
-          </button>
-        </form>
-
-        {/* Cuentas Rápidas de Demostración */}
-        <div style={{ marginTop: '24px', paddingTop: '18px', borderTop: '1px solid var(--border-subtle)' }}>
-          <div style={{ fontSize: '0.74rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700, marginBottom: '10px' }}>
-            Acceso Rápido de Prueba (Roles del CSV)
-          </div>
-
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <button
-              type="button"
-              className="btn-ghost"
-              style={{ justifyContent: 'space-between', padding: '8px 12px', fontSize: '0.8rem' }}
-              onClick={() => quickLogin('admin@cai.local', 'admin123')}
-            >
-              <div style={{ textAlign: 'left' }}>
-                <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>Carlos Rodríguez</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>admin@cai.local</span>
-              </div>
-              <span className="badge badge-admin">ADMIN</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-ghost"
-              style={{ justifyContent: 'space-between', padding: '8px 12px', fontSize: '0.8rem' }}
-              onClick={() => quickLogin('seguridad@cai.local', 'guardiaPass1')}
-            >
-              <div style={{ textAlign: 'left' }}>
-                <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>José Hernández</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>seguridad@cai.local</span>
-              </div>
-              <span className="badge badge-seguridad">GARITA</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-ghost"
-              style={{ justifyContent: 'space-between', padding: '8px 12px', fontSize: '0.8rem' }}
-              onClick={() => quickLogin('mfernandez@cai.local', 'empleado2024')}
-            >
-              <div style={{ textAlign: 'left' }}>
-                <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>María Fernández</span>
-                <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>mfernandez@cai.local</span>
-              </div>
-              <span className="badge badge-empleado">EMPLEADO</span>
-            </button>
-          </div>
-        </div>
+        )}
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
-import { IsNotEmpty, IsString } from 'class-validator';
-import { ApiProperty } from '@nestjs/swagger';
+import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateNoticiaDto {
   @ApiProperty({
@@ -17,5 +17,13 @@ export class CreateNoticiaDto {
   @IsString({ message: 'El contenido debe ser texto' })
   @IsNotEmpty({ message: 'El contenido de la noticia es obligatorio' })
   contenido: string;
+
+  @ApiPropertyOptional({
+    description: 'URL o ruta de imagen adjunta al comunicado',
+    example: '/uploads/noticias/comunicado1.png',
+  })
+  @IsOptional()
+  @IsString({ message: 'La URL de la imagen debe ser texto' })
+  imagenUrl?: string;
 }
 
