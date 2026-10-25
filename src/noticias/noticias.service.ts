@@ -1,11 +1,15 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateNoticiaDto } from './dto/create-noticia.dto';
 import { UpdateNoticiaDto } from './dto/update-noticia.dto';
 
 @Injectable()
 export class NoticiasService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoriaService: AuditoriaService,
+  ) {}
 
   async findAll() {
     return this.prisma.noticia.findMany({
@@ -26,13 +30,22 @@ export class NoticiasService {
   }
 
   async create(dto: CreateNoticiaDto) {
-    return this.prisma.noticia.create({
+    const created = await this.prisma.noticia.create({
       data: {
         titulo: dto.titulo.trim(),
         contenido: dto.contenido.trim(),
         imagenUrl: dto.imagenUrl ? dto.imagenUrl.trim() : null,
       },
     });
+
+    await this.auditoriaService.registrar({
+      accion: 'CREAR_NOTICIA',
+      entidad: 'Noticia',
+      entidadId: created.id,
+      detalles: { titulo: created.titulo },
+    });
+
+    return created;
   }
 
   async update(id: string, dto: UpdateNoticiaDto) {
@@ -46,10 +59,19 @@ export class NoticiasService {
     if (dto.contenido) data.contenido = dto.contenido.trim();
     if (dto.imagenUrl !== undefined) data.imagenUrl = dto.imagenUrl ? dto.imagenUrl.trim() : null;
 
-    return this.prisma.noticia.update({
+    const updated = await this.prisma.noticia.update({
       where: { id },
       data,
     });
+
+    await this.auditoriaService.registrar({
+      accion: 'ACTUALIZAR_NOTICIA',
+      entidad: 'Noticia',
+      entidadId: id,
+      detalles: { cambios: Object.keys(data), titulo: updated.titulo },
+    });
+
+    return updated;
   }
 
   async remove(id: string) {
@@ -58,8 +80,18 @@ export class NoticiasService {
       throw new NotFoundException(`Noticia con ID '${id}' no encontrada`);
     }
 
-    return this.prisma.noticia.delete({
+    const deleted = await this.prisma.noticia.delete({
       where: { id },
     });
+
+    await this.auditoriaService.registrar({
+      accion: 'ELIMINAR_NOTICIA',
+      entidad: 'Noticia',
+      entidadId: id,
+      detalles: { titulo: existing.titulo },
+    });
+
+    return deleted;
   }
 }
+

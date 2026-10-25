@@ -1,0 +1,57 @@
+name: CI - Integración Continua Sistema CAI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  build-and-test:
+    name: Compilación, Lint y Pruebas Automatizadas
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgrespassword
+          POSTGRES_DB: cai_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - name: Checkout de Código Fuente
+        uses: actions/checkout@v4
+
+      - name: Instalar Node.js LTS (v20)
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+
+      - name: Instalar Dependencias del Backend
+        run: npm ci || npm install
+
+      - name: Generar Cliente de Prisma ORM
+        run: npx prisma generate
+        env:
+          DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/cai_db?schema=public"
+
+      - name: Compilar Backend (NestJS)
+        run: npm run build
+
+      - name: Ejecutar Batería de Pruebas Automatizadas (Fase 3)
+        run: npm test
+
+      - name: Instalar y Compilar Frontend (Vite + React)
+        working-directory: ./frontend
+        run: |
+          npm ci || npm install
+          npm run build

@@ -28,33 +28,40 @@ export const HistorialView: React.FC = () => {
   }, [tipoFilter, search]);
 
   // Exportar a CSV
-  const handleExportCSV = () => {
-    if (registros.length === 0) return;
+  const handleExportCSV = async () => {
+    try {
+      await api.downloadHistorialCsv({
+        tipo: tipoFilter || undefined,
+        search: search || undefined,
+      });
+    } catch (err: any) {
+      if (registros.length === 0) return;
+      const headers = ['ID', 'Fecha y Hora', 'Tipo', 'Nombre', 'Apellido', 'Cédula', 'Tipo Persona', 'Observación'];
+      const rows = registros.map((r) => {
+        const p = r.usuario || r.invitado;
+        return [
+          r.id,
+          new Date(r.timestamp).toLocaleString('es-ES'),
+          r.tipo,
+          p?.nombre || '',
+          p?.apellido || '',
+          p?.cedula || '',
+          r.invitado ? 'Visitante' : 'Personal',
+          `"${(r.observacion || '').replace(/"/g, '""')}"`,
+        ];
+      });
 
-    const headers = ['ID', 'Fecha y Hora', 'Tipo', 'Nombre', 'Apellido', 'Cédula', 'Tipo Persona', 'Observación'];
-    const rows = registros.map((r) => {
-      const p = r.usuario || r.invitado;
-      return [
-        r.id,
-        new Date(r.timestamp).toLocaleString('es-ES'),
-        r.tipo,
-        p?.nombre || '',
-        p?.apellido || '',
-        p?.cedula || '',
-        r.invitado ? 'Visitante' : 'Personal',
-        `"${(r.observacion || '').replace(/"/g, '""')}"`,
-      ];
-    });
-
-    const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-    const encodedUri = encodeURI(csvContent);
-    const link = document.createElement('a');
-    link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `bitacora_cai_${new Date().toISOString().slice(0, 10)}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
+      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
+      const encodedUri = encodeURI(csvContent);
+      const link = document.createElement('a');
+      link.setAttribute('href', encodedUri);
+      link.setAttribute('download', `bitacora_cai_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
   };
+
 
   return (
     <div className="animate-fade-in" style={{ width: '100%', minWidth: 0 }}>

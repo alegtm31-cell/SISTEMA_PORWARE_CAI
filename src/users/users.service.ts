@@ -2,12 +2,17 @@ import { Injectable, NotFoundException, ConflictException } from '@nestjs/common
 import * as bcrypt from 'bcryptjs';
 import { Role } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoriaService: AuditoriaService,
+  ) {}
+
 
   async findAll(params?: { search?: string; rol?: Role; skip?: number; take?: number }) {
     const { search, rol, skip, take } = params || {};
@@ -163,6 +168,13 @@ export class UsersService {
       },
     });
 
+    await this.auditoriaService.registrar({
+      accion: 'CREAR_USUARIO',
+      entidad: 'Usuario',
+      entidadId: user.id,
+      detalles: { cedula: user.cedula, nombre: `${user.nombre} ${user.apellido}`, rol: user.rol, email: user.email },
+    });
+
     return user;
   }
 
@@ -204,7 +216,7 @@ export class UsersService {
     if (dto.telefonoMovil !== undefined) data.telefonoMovil = dto.telefonoMovil ? dto.telefonoMovil.trim() : null;
     if (dto.telefonoFijo !== undefined) data.telefonoFijo = dto.telefonoFijo ? dto.telefonoFijo.trim() : null;
 
-    return this.prisma.usuario.update({
+    const updated = await this.prisma.usuario.update({
       where: { id },
       data,
       select: {
@@ -221,6 +233,21 @@ export class UsersService {
         updatedAt: true,
       },
     });
+
+    const isRoleChange = dto.rol && dto.rol !== existingUser.rol;
+    await this.auditoriaService.registrar({
+      accion: isRoleChange ? 'CAMBIO_ROL' : 'ACTUALIZAR_USUARIO',
+      entidad: 'Usuario',
+      entidadId: id,
+      detalles: {
+        isRoleChange,
+        rolAnterior: existingUser.rol,
+        rolNuevo: dto.rol || existingUser.rol,
+        cambios: Object.keys(data).filter(k => k !== 'password'),
+      },
+    });
+
+    return updated;
   }
 
   async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string) {
@@ -229,7 +256,7 @@ export class UsersService {
       throw new NotFoundException(`Usuario con ID '${id}' no encontrado`);
     }
 
-    return this.prisma.usuario.update({
+    const updated = await this.prisma.usuario.update({
       where: { id },
       data: {
         bloqueado,
@@ -244,6 +271,15 @@ export class UsersService {
         motivoBloqueo: true,
       },
     });
+
+    await this.auditoriaService.registrar({
+      accion: bloqueado ? 'BLOQUEO_USUARIO' : 'DESBLOQUEO_USUARIO',
+      entidad: 'Usuario',
+      entidadId: id,
+      detalles: { motivo: motivoBloqueo, cedula: user.cedula },
+    });
+
+    return updated;
   }
 
   async remove(id: string) {
@@ -265,7 +301,7 @@ export class UsersService {
     // Hallazgo: evitar fallo por clave foránea si tiene registros de acceso históricos
     if (user._count.registros > 0) {
       // Bloqueo lógico en lugar de borrado físico destructivo para preservar evidencia histórica
-      return this.prisma.usuario.update({
+      const result = await this.prisma.usuario.update({
         where: { id },
         data: {
           bloqueado: true,
@@ -278,9 +314,18 @@ export class UsersService {
           apellido: true,
         },
       });
+
+      await this.auditoriaService.registrar({
+        accion: 'DESINCORPORAR_USUARIO',
+        entidad: 'Usuario',
+        entidadId: id,
+        detalles: { motivo: 'Historial preservado para auditoría legal', cedula: user.cedula },
+      });
+
+      return result;
     }
 
-    return this.prisma.usuario.delete({
+    const deleted = await this.prisma.usuario.delete({
       where: { id },
       select: {
         id: true,
@@ -289,5 +334,15 @@ export class UsersService {
         apellido: true,
       },
     });
+
+    await this.auditoriaService.registrar({
+      accion: 'ELIMINAR_USUARIO',
+      entidad: 'Usuario',
+      entidadId: id,
+      detalles: { cedula: user.cedula, nombre: `${user.nombre} ${user.apellido}` },
+    });
+
+    return deleted;
   }
 }
+

@@ -7,11 +7,13 @@
     "start": "nest start",
     "start:dev": "nest start --watch",
     "seed": "ts-node prisma/seed.ts",
+    "test": "ts-node test/test-suite.ts",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "apk:build": "build-apk.bat",
     "apk:open": "npm --prefix frontend run cap:open"
   },
+
   "dependencies": {
     "@nestjs/common": "^10.0.0",
     "@nestjs/core": "^10.0.0",

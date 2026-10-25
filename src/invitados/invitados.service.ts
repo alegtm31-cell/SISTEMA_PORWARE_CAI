@@ -1,11 +1,16 @@
 import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { CreateInvitadoDto } from './dto/create-invitado.dto';
 import { UpdateInvitadoDto } from './dto/update-invitado.dto';
 
 @Injectable()
 export class InvitadosService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoriaService: AuditoriaService,
+  ) {}
+
 
   async create(dto: CreateInvitadoDto, currentUser: any) {
     // Hallazgo 7: Si es EMPLEADO, forzar que el anfitrión sea él mismo
@@ -23,7 +28,7 @@ export class InvitadosService {
     const cleanCedula = dto.cedula.trim();
 
     // Upsert: si el visitante ya existe en el sistema, actualiza sus datos y vincula la visita
-    return this.prisma.invitado.upsert({
+    const result = await this.prisma.invitado.upsert({
       where: { cedula: cleanCedula },
       update: {
         nombre: dto.nombre.trim(),
@@ -56,6 +61,16 @@ export class InvitadosService {
         },
       },
     });
+
+    await this.auditoriaService.registrar({
+      usuarioId: currentUser.id,
+      accion: 'CREAR_INVITADO',
+      entidad: 'Invitado',
+      entidadId: result.id,
+      detalles: { cedula: result.cedula, nombre: `${result.nombre} ${result.apellido}`, placa: result.placa, anfitrionId: hostId },
+    });
+
+    return result;
   }
 
   async findAll(params?: { search?: string; empleadoId?: string; skip?: number; take?: number }) {
@@ -186,7 +201,7 @@ export class InvitadosService {
       data.empleadoId = dto.empleadoId;
     }
 
-    return this.prisma.invitado.update({
+    const updated = await this.prisma.invitado.update({
       where: { id },
       data,
       include: {
@@ -200,6 +215,16 @@ export class InvitadosService {
         },
       },
     });
+
+    await this.auditoriaService.registrar({
+      usuarioId: currentUser?.id,
+      accion: 'ACTUALIZAR_INVITADO',
+      entidad: 'Invitado',
+      entidadId: id,
+      detalles: { cambios: Object.keys(data), cedula: updated.cedula },
+    });
+
+    return updated;
   }
 
   async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string) {
@@ -208,13 +233,22 @@ export class InvitadosService {
       throw new NotFoundException(`Invitado con ID '${id}' no encontrado`);
     }
 
-    return this.prisma.invitado.update({
+    const updated = await this.prisma.invitado.update({
       where: { id },
       data: {
         bloqueado,
         motivoBloqueo: bloqueado ? motivoBloqueo || 'Bloqueado por seguridad' : null,
       },
     });
+
+    await this.auditoriaService.registrar({
+      accion: bloqueado ? 'BLOQUEO_INVITADO' : 'DESBLOQUEO_INVITADO',
+      entidad: 'Invitado',
+      entidadId: id,
+      detalles: { motivo: motivoBloqueo, cedula: existing.cedula },
+    });
+
+    return updated;
   }
 
   async remove(id: string, currentUser?: any) {
@@ -227,7 +261,7 @@ export class InvitadosService {
       throw new ForbiddenException('No tiene permisos para cancelar visitas de otros empleados');
     }
 
-    return this.prisma.invitado.delete({
+    const deleted = await this.prisma.invitado.delete({
       where: { id },
       select: {
         id: true,
@@ -236,5 +270,16 @@ export class InvitadosService {
         apellido: true,
       },
     });
+
+    await this.auditoriaService.registrar({
+      usuarioId: currentUser?.id,
+      accion: 'CANCELAR_INVITADO',
+      entidad: 'Invitado',
+      entidadId: id,
+      detalles: { cedula: deleted.cedula, nombre: `${deleted.nombre} ${deleted.apellido}` },
+    });
+
+    return deleted;
   }
 }
+

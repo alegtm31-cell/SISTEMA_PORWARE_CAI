@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Patch, Param, Body, UseGuards, HttpCode, HttpStatus } from '@nestjs/common';
+import { Controller, Post, Get, Patch, Param, Body, UseGuards, HttpCode, HttpStatus, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
+import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
@@ -22,9 +23,12 @@ export class AuthController {
   })
   @ApiResponse({ status: 200, description: 'Inicio de sesión exitoso con token JWT.' })
   @ApiResponse({ status: 401, description: 'Credenciales inválidas.' })
-  async login(@Body() loginDto: LoginDto) {
-    return this.authService.login(loginDto);
+  async login(@Body() loginDto: LoginDto, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] as string;
+    return this.authService.login(loginDto, clientIp, userAgent);
   }
+
 
   @Public()
   @Get('check-preregistro/:cedula')

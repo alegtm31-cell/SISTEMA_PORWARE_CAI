@@ -2,6 +2,7 @@ import { Injectable, UnauthorizedException, NotFoundException, BadRequestExcepti
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './jwt.strategy';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
@@ -12,9 +13,10 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly auditoriaService: AuditoriaService,
   ) {}
 
-  async validateUser(identifier: string, rawPass: string) {
+  async validateUser(identifier: string, rawPass: string, ip?: string, userAgent?: string) {
     const cleanId = identifier.trim();
 
     // Permite login por cédula o correo electrónico
@@ -29,11 +31,26 @@ export class AuthService {
 
     // Seguridad: Unificar mensaje de error para evitar enumeración de usuarios
     if (!user) {
+      await this.auditoriaService.registrar({
+        accion: 'LOGIN_FALLIDO',
+        entidad: 'Auth',
+        detalles: { identificador: cleanId, motivo: 'Usuario no encontrado' },
+        ip,
+        userAgent,
+      });
       throw new UnauthorizedException('Credenciales inválidas (usuario o contraseña incorrectos)');
     }
 
     const isMatch = await bcrypt.compare(rawPass, user.password);
     if (!isMatch) {
+      await this.auditoriaService.registrar({
+        usuarioId: user.id,
+        accion: 'LOGIN_FALLIDO',
+        entidad: 'Auth',
+        detalles: { identificador: cleanId, motivo: 'Contraseña incorrecta' },
+        ip,
+        userAgent,
+      });
       throw new UnauthorizedException('Credenciales inválidas (usuario o contraseña incorrectos)');
     }
 
@@ -41,8 +58,8 @@ export class AuthService {
     return result;
   }
 
-  async login(loginDto: LoginDto) {
-    const user = await this.validateUser(loginDto.identifier, loginDto.password);
+  async login(loginDto: LoginDto, ip?: string, userAgent?: string) {
+    const user = await this.validateUser(loginDto.identifier, loginDto.password, ip, userAgent);
 
     const payload: JwtPayload = {
       sub: user.id,
@@ -53,12 +70,22 @@ export class AuthService {
 
     const accessToken = this.jwtService.sign(payload);
 
+    await this.auditoriaService.registrar({
+      usuarioId: user.id,
+      accion: 'LOGIN_EXITOSO',
+      entidad: 'Auth',
+      detalles: { email: user.email, rol: user.rol, cedula: user.cedula },
+      ip,
+      userAgent,
+    });
+
     return {
       message: 'Inicio de sesión exitoso',
       accessToken,
       user,
     };
   }
+
 
   // Paridad con original: Verificar si la cédula está pre-registrada por el Administrador
   async checkPreRegistro(cedula: string) {

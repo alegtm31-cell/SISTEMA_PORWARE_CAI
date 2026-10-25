@@ -384,4 +384,61 @@ export const api = {
 
     return await res.json();
   },
+
+  // Exportar Historial a CSV
+  async downloadHistorialCsv(filter?: { tipo?: string; search?: string; startDate?: string; endDate?: string }): Promise<void> {
+    const url = buildUrl('/historial/export/csv');
+    if (filter?.tipo) url.searchParams.set('tipo', filter.tipo);
+    if (filter?.search) url.searchParams.set('search', filter.search);
+    if (filter?.startDate) url.searchParams.set('startDate', filter.startDate);
+    if (filter?.endDate) url.searchParams.set('endDate', filter.endDate);
+
+    const res = await fetch(url.toString(), { headers: this.getHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al exportar historial a CSV');
+    }
+
+    const blob = await res.blob();
+    const downloadUrl = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = downloadUrl;
+    a.download = `historial_accesos_${new Date().toISOString().split('T')[0]}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    window.URL.revokeObjectURL(downloadUrl);
+    document.body.removeChild(a);
+  },
+
+  // Acta Oficial de Evacuación (Roll Call)
+  async getActaEvacuacion(): Promise<any> {
+    const res = await fetch(`${getApiBase()}/historial/evacuacion/acta`, {
+      headers: this.getHeaders(),
+    });
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al generar acta de evacuación');
+    }
+
+    return await res.json();
+  },
+
+  // Auditoría Integral del Sistema (Solo Administrador)
+  async getAuditoria(filter?: { entidad?: string; accion?: string; skip?: number; take?: number }): Promise<any> {
+    const url = buildUrl('/auditoria');
+    if (filter?.entidad) url.searchParams.set('entidad', filter.entidad);
+    if (filter?.accion) url.searchParams.set('accion', filter.accion);
+    if (filter?.skip !== undefined) url.searchParams.set('skip', String(filter.skip));
+    if (filter?.take !== undefined) url.searchParams.set('take', String(filter.take));
+
+    const res = await fetch(url.toString(), { headers: this.getHeaders() });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.message || 'Error al consultar auditoría del sistema');
+    }
+
+    return await res.json();
+  },
 };
+

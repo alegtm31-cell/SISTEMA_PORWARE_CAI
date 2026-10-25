@@ -277,4 +277,115 @@ export class HistorialService {
       data: { observacion: observacionFinal },
     });
   }
+
+  /**
+   * Exporta la bitácora de accesos a formato CSV estándar con soporte UTF-8 para Excel
+   */
+  async exportCsv(filter: FilterHistorialDto): Promise<string> {
+    const { tipo, targetType, startDate, endDate, search } = filter;
+    const where: any = {};
+
+    if (tipo) where.tipo = tipo;
+    if (targetType === 'USUARIO') where.usuarioId = { not: null };
+    else if (targetType === 'INVITADO') where.invitadoId = { not: null };
+
+    if (startDate || endDate) {
+      where.timestamp = {};
+      if (startDate) where.timestamp.gte = new Date(startDate);
+      if (endDate) {
+        const end = new Date(endDate);
+        end.setHours(23, 59, 59, 999);
+        where.timestamp.lte = end;
+      }
+    }
+
+    if (search) {
+      const term = search.trim();
+      where.OR = [
+        { observacion: { contains: term, mode: 'insensitive' } },
+        { usuario: { cedula: { contains: term, mode: 'insensitive' } } },
+        { usuario: { nombre: { contains: term, mode: 'insensitive' } } },
+        { usuario: { apellido: { contains: term, mode: 'insensitive' } } },
+        { invitado: { cedula: { contains: term, mode: 'insensitive' } } },
+        { invitado: { nombre: { contains: term, mode: 'insensitive' } } },
+        { invitado: { apellido: { contains: term, mode: 'insensitive' } } },
+        { invitado: { empresa: { contains: term, mode: 'insensitive' } } },
+      ];
+    }
+
+    const records = await this.prisma.historial.findMany({
+      where,
+      orderBy: { timestamp: 'desc' },
+      take: 10000,
+      include: {
+        usuario: { select: { cedula: true, nombre: true, apellido: true, rol: true, departamento: true } },
+        invitado: { select: { cedula: true, nombre: true, apellido: true, empresa: true, placa: true } },
+        registradoPor: { select: { nombre: true, apellido: true, rol: true } },
+      },
+    });
+
+    const header = ['ID', 'Fecha', 'Hora', 'Tipo', 'Persona', 'Cédula', 'Categoría', 'Empresa / Dpto', 'Vehículo / Placa', 'Operador de Garita', 'Observaciones'];
+    const rows = records.map((r) => {
+      const d = new Date(r.timestamp);
+      const fecha = d.toLocaleDateString('es-VE', { timeZone: 'America/Caracas' });
+      const hora = d.toLocaleTimeString('es-VE', { timeZone: 'America/Caracas' });
+      const persona = r.usuario ? `${r.usuario.nombre} ${r.usuario.apellido}` : r.invitado ? `${r.invitado.nombre} ${r.invitado.apellido}` : 'Desconocido';
+      const cedula = r.usuario ? r.usuario.cedula : r.invitado ? r.invitado.cedula : '-';
+      const categoria = r.usuario ? `EMPLEADO (${r.usuario.rol})` : 'VISITANTE';
+      const empresaDpto = r.usuario ? (r.usuario.departamento || 'Personal Interno') : (r.invitado?.empresa || 'Particular');
+      const placa = r.invitado?.placa || '-';
+      const operador = r.registradoPor ? `${r.registradoPor.nombre} ${r.registradoPor.apellido}` : 'Sistema / Auto';
+      const obs = (r.observacion || '').replace(/[\r\n]+/g, ' | ');
+
+      return [
+        r.id,
+        fecha,
+        hora,
+        r.tipo,
+        persona,
+        cedula,
+        categoria,
+        empresaDpto,
+        placa,
+        operador,
+        obs,
+      ].map((val) => `"${String(val).replace(/"/g, '""')}"`).join(',');
+    });
+
+    return '\uFEFF' + [header.join(','), ...rows].join('\r\n');
+  }
+
+  /**
+   * Genera el Acta Oficial de Evacuación / Roll Call con los datos reales en tiempo real
+   */
+  async getActaEvacuacion() {
+    const personas = await this.getPersonasDentro();
+    const now = new Date();
+    const fechaStr = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', dateStyle: 'full' }).format(now);
+    const horaStr = new Intl.DateTimeFormat('es-VE', { timeZone: 'America/Caracas', timeStyle: 'medium' }).format(now);
+    const codigoActa = `ACTA-EVAC-${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}-${String(now.getHours()).padStart(2, '0')}${String(now.getMinutes()).padStart(2, '0')}`;
+
+    const personal = personas.filter((p) => p.tipo.startsWith('PERSONAL'));
+    const visitantes = personas.filter((p) => !p.tipo.startsWith('PERSONAL'));
+
+    return {
+      codigoActa,
+      sede: 'Sede Principal - Control de Acceso CAI',
+      fechaEmision: fechaStr,
+      horaEmision: horaStr,
+      timestamp: now.toISOString(),
+      resumen: {
+        totalPresentes: personas.length,
+        totalPersonal: personal.length,
+        totalVisitantes: visitantes.length,
+      },
+      personas,
+      firmas: [
+        { cargo: 'Oficial de Seguridad en Garita', nombre: '', cedula: '' },
+        { cargo: 'Coordinador de Brigada de Emergencia', nombre: '', cedula: '' },
+        { cargo: 'Supervisor / Gerente de Planta', nombre: '', cedula: '' },
+      ],
+    };
+  }
 }
+

@@ -48,6 +48,7 @@ model Usuario {
   visitasAutorizadas Visita[]    @relation("VisitasAutorizadas")
   registros          Historial[] @relation("UsuarioAcceso")
   registrosOperados  Historial[] @relation("OperadorRegistro")
+  auditorias         Auditoria[] @relation("AuditoriaUsuario")
 }
 
 model Invitado {
@@ -109,3 +110,21 @@ model Noticia {
   imagenUrl String?
   createdAt DateTime @default(now())
 }
+
+model Auditoria {
+  id         String   @id @default(uuid())
+  usuarioId  String?
+  usuario    Usuario? @relation("AuditoriaUsuario", fields: [usuarioId], references: [id], onDelete: SetNull)
+  accion     String
+  entidad    String
+  entidadId  String?
+  detalles   String?
+  ip         String?
+  userAgent  String?
+  createdAt  DateTime @default(now())
+
+  @@index([entidad, entidadId])
+  @@index([accion])
+  @@index([createdAt])
+}
+

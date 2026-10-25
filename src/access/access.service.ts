@@ -1,9 +1,13 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 
 @Injectable()
 export class AccessService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly auditoriaService: AuditoriaService,
+  ) {}
 
   async registerAccess(
     targetId: string,
@@ -31,6 +35,13 @@ export class AccessService {
 
       // Regla 1: Control de Bloqueo persistido en base de datos
       if (guest.bloqueado && tipo === 'ENTRADA') {
+        await this.auditoriaService.registrar({
+          usuarioId: registradoPorId,
+          accion: 'ACCESO_DENEGADO_BLOQUEO',
+          entidad: 'Invitado',
+          entidadId: guest.id,
+          detalles: { cedula: guest.cedula, motivo: guest.motivoBloqueo },
+        });
         throw new ForbiddenException(
           `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
         );
@@ -44,11 +55,25 @@ export class AccessService {
 
       if (lastMove) {
         if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+          await this.auditoriaService.registrar({
+            usuarioId: registradoPorId,
+            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+            entidad: 'Invitado',
+            entidadId: guest.id,
+            detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+          });
           throw new BadRequestException(
             `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
           );
         }
         if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+          await this.auditoriaService.registrar({
+            usuarioId: registradoPorId,
+            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+            entidad: 'Invitado',
+            entidadId: guest.id,
+            detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_SALIDA' },
+          });
           throw new BadRequestException(
             `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
           );
@@ -58,6 +83,7 @@ export class AccessService {
           `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
         );
       }
+
 
       return this.prisma.historial.create({
         data: {
@@ -105,6 +131,13 @@ export class AccessService {
 
       // Regla 1: Control de Bloqueo persistido en base de datos
       if (user.bloqueado && tipo === 'ENTRADA') {
+        await this.auditoriaService.registrar({
+          usuarioId: registradoPorId,
+          accion: 'ACCESO_DENEGADO_BLOQUEO',
+          entidad: 'Usuario',
+          entidadId: user.id,
+          detalles: { cedula: user.cedula, motivo: user.motivoBloqueo },
+        });
         throw new ForbiddenException(
           `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
         );
@@ -118,11 +151,25 @@ export class AccessService {
 
       if (lastMove) {
         if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+          await this.auditoriaService.registrar({
+            usuarioId: registradoPorId,
+            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+            entidad: 'Usuario',
+            entidadId: user.id,
+            detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+          });
           throw new BadRequestException(
             `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
           );
         }
         if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+          await this.auditoriaService.registrar({
+            usuarioId: registradoPorId,
+            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+            entidad: 'Usuario',
+            entidadId: user.id,
+            detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_SALIDA' },
+          });
           throw new BadRequestException(
             `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
           );
@@ -132,6 +179,7 @@ export class AccessService {
           `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
         );
       }
+
 
       return this.prisma.historial.create({
         data: {

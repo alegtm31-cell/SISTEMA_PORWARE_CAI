@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { PrismaModule } from './prisma/prisma.module';
@@ -8,6 +8,9 @@ import { UsersModule } from './users/users.module';
 import { InvitadosModule } from './invitados/invitados.module';
 import { HistorialModule } from './historial/historial.module';
 import { NoticiasModule } from './noticias/noticias.module';
+import { AuditoriaModule } from './auditoria/auditoria.module';
+import { HealthModule } from './health/health.module';
+import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 @Module({
   imports: [
@@ -18,6 +21,8 @@ import { NoticiasModule } from './noticias/noticias.module';
       },
     ]),
     PrismaModule,
+    AuditoriaModule,
+    HealthModule,
     AuthModule,
     AccessModule,
     UsersModule,
@@ -32,4 +37,9 @@ import { NoticiasModule } from './noticias/noticias.module';
     },
   ],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  configure(consumer: MiddlewareConsumer) {
+    consumer.apply(LoggingMiddleware).forRoutes('*');
+  }
+}
+
