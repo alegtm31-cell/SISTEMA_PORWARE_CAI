@@ -1,10 +1,11 @@
 import React, { useState, useEffect } from 'react';
-import { WifiOff, RefreshCw } from 'lucide-react';
+import { WifiOff, RefreshCw, X } from 'lucide-react';
 import { api } from '../services/api';
 
 export const OfflineBanner: React.FC = () => {
   const [isOffline, setIsOffline] = useState(!navigator.onLine);
   const [retrying, setRetrying] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
 
   const verifyConnection = async () => {
     if (!navigator.onLine) {
@@ -38,7 +39,7 @@ export const OfflineBanner: React.FC = () => {
     };
   }, []);
 
-  if (!isOffline) return null;
+  if (!isOffline || dismissed) return null;
 
   return (
     <div
@@ -68,27 +69,47 @@ export const OfflineBanner: React.FC = () => {
         </span>
       </div>
 
-      <button
-        type="button"
-        onClick={handleRetry}
-        disabled={retrying}
-        style={{
-          background: 'rgba(255, 255, 255, 0.2)',
-          border: '1px solid rgba(255, 255, 255, 0.4)',
-          color: '#ffffff',
-          borderRadius: '6px',
-          padding: '4px 12px',
-          cursor: retrying ? 'wait' : 'pointer',
-          display: 'flex',
-          alignItems: 'center',
-          gap: '6px',
-          fontSize: '0.78rem',
-          fontWeight: 700,
-        }}
-      >
-        <RefreshCw size={13} className={retrying ? 'spin' : ''} />
-        <span>{retrying ? 'Verificando...' : 'Reconectar'}</span>
-      </button>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          type="button"
+          onClick={handleRetry}
+          disabled={retrying}
+          style={{
+            background: 'rgba(255, 255, 255, 0.2)',
+            border: '1px solid rgba(255, 255, 255, 0.4)',
+            color: '#ffffff',
+            borderRadius: '6px',
+            padding: '4px 12px',
+            cursor: retrying ? 'wait' : 'pointer',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '6px',
+            fontSize: '0.78rem',
+            fontWeight: 700,
+          }}
+        >
+          <RefreshCw size={13} className={retrying ? 'spin' : ''} />
+          <span>{retrying ? 'Verificando...' : 'Reconectar'}</span>
+        </button>
+
+        <button
+          type="button"
+          onClick={() => setDismissed(true)}
+          style={{
+            background: 'transparent',
+            border: 'none',
+            color: 'rgba(255, 255, 255, 0.8)',
+            cursor: 'pointer',
+            padding: '4px',
+            display: 'flex',
+            alignItems: 'center',
+            borderRadius: '4px',
+          }}
+          title="Ocultar aviso"
+        >
+          <X size={16} />
+        </button>
+      </div>
     </div>
   );
 };

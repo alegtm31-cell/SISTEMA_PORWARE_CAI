@@ -199,17 +199,35 @@ export const UsersView: React.FC = () => {
           style={{
             position: 'fixed',
             inset: 0,
-            background: 'rgba(0, 0, 0, 0.75)',
-            backdropFilter: 'blur(8px)',
+            background: 'rgba(5, 8, 15, 0.82)',
+            backdropFilter: 'blur(10px)',
             display: 'flex',
             alignItems: 'center',
             justifyContent: 'center',
-            zIndex: 100,
+            zIndex: 1000,
+            padding: '24px 16px',
+            overflowY: 'auto',
           }}
+          onClick={() => setIsModalOpen(false)}
         >
-          <div className="glass-panel" style={{ width: '480px', padding: '28px', background: 'var(--bg-surface)' }}>
+          <div
+            className="glass-panel animate-fade-in"
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+              maxHeight: 'calc(100vh - 48px)',
+              overflowY: 'auto',
+              padding: '28px',
+              background: 'var(--bg-surface)',
+              borderRadius: '16px',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5), 0 0 25px rgba(14, 165, 233, 0.15)',
+              border: '1px solid var(--border-glow)',
+              margin: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)' }}>Registrar Nuevo Usuario</h3>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Registrar Nuevo Usuario</h3>
               <button
                 type="button"
                 className="btn-ghost"
