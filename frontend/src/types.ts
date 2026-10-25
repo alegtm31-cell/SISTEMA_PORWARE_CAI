@@ -17,6 +17,8 @@ export interface Usuario {
   telefonoFijo?: string;
   fotoUrl?: string;
   bloqueado?: boolean;
+  registroCompletado?: boolean;
+  debeCambiarClave?: boolean;
   estadoSeguridad?: EstadoSeguridad;
   motivoBloqueo?: string;
   createdAt?: string;
