@@ -103,3 +103,28 @@ Al iniciar la aplicación, puedes acceder a la interfaz interactiva de Swagger p
 * **ADMINISTRADOR**: Acceso total al sistema, auditoría, gestión de usuarios, visitas y publicaciones.
 * **SEGURIDAD**: Acceso a garita para check-in, check-out, búsqueda rápida de personas por cédula, consulta de estadísticas de aforo e historial.
 * **EMPLEADO**: Acceso a su perfil, registro y consulta de sus propios invitados, lectura de noticias institucionales.
+
+---
+
+## 📚 Documentación Operativa y Manuales de Producción (Fase 5)
+El sistema cuenta con manuales operativos completos en el directorio [`docs/`](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs):
+
+1. **[Runbook de Despliegue, Actualización y Rollback](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs/RUNBOOK_DESPLIEGUE_Y_ROLLBACK.md)**: Guía paso a paso para despliegue en servidor de garita con Docker Compose de producción, Nginx TLS y procedimientos de contingencia.
+2. **[Manual Operativo de Garita](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs/MANUAL_OPERATIVO_GARITA.md)**: Manual para guardias de seguridad sobre el uso de la pistola láser USB, lectura de carnet, pases QR firmados `CAI2:...`, detección de pases vencidos o vetados y protocolo de evacuación.
+3. **[Política de Respaldos y Recuperación ante Desastres (DRP)](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs/POLITICA_RESPALDOS_Y_RECUPERACION.md)**: Plan de continuidad operativa, automatización con cron / programador de tareas y recuperación probada.
+4. **[Guía de Migración de Datos Legados](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs/GUIA_MIGRACION_DATOS_PHP_MYSQL.md)**: Procedimiento de importación desde el sistema PHP 5.6 / MySQL (`cai.sql`) con normalización de cédulas y actualización de contraseñas.
+5. **[Certificación de Producción y Matriz de Auditoría](file:///c:/Users/Indatech/Downloads/porware_cai_migration/docs/CERTIFICACION_PRODUCCION_AUDITORIA.md)**: Matriz de verificación exhaustiva que subsana los hallazgos de la auditoría técnica de Alexander Torrealba.
+
+---
+
+## 🧪 Pruebas Automatizadas y Compilación de APK
+* **Ejecutar Suite de Pruebas (13/13 Pruebas Automatizadas)**:
+  ```bash
+  npm test
+  ```
+* **Compilar APK Móvil para Garita / PDAs**:
+  ```bash
+  npm run apk:build
+  # O en Linux: bash scripts/build-apk.sh
+  ```
+

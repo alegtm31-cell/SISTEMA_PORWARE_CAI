@@ -8,6 +8,7 @@
     "start:dev": "nest start --watch",
     "seed": "ts-node prisma/seed.ts",
     "test": "ts-node test/test-suite.ts",
+    "migrate:legacy": "ts-node scripts/migrate-legacy-mysql.ts",
     "frontend:dev": "npm --prefix frontend run dev",
     "frontend:build": "npm --prefix frontend run build",
     "apk:build": "build-apk.bat",
