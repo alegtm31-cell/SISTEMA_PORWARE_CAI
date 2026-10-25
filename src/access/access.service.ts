@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
 
@@ -18,8 +19,9 @@ export class AccessService {
   ) {
     const cleanId = targetId.trim();
 
-    // Atomicidad: Ejecutar verificación de Anti-Passback y creación dentro de una transacción para evitar condiciones de carrera
-    return this.prisma.$transaction(async (tx) => {
+    // Atomicidad: Nivel Serializable para prevenir condiciones de carrera en Anti-Passback bajo alta concurrencia
+    return this.prisma.$transaction(
+      async (tx) => {
       if (isGuest) {
         // Buscar invitado por ID o por Cédula
         const guest = await tx.invitado.findFirst({
@@ -209,6 +211,9 @@ export class AccessService {
           },
         });
       }
+    },
+    {
+      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
     });
   }
 

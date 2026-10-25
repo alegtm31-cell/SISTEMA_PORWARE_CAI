@@ -13,6 +13,10 @@ frontend/dist-ssr/
 .env.local
 .env.*.local
 frontend/.env.local
+nginx/ssl/
+*.key
+*.crt
+*.pem
 
 # Android / Gradle
 frontend/android/.gradle/

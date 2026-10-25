@@ -1,5 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
@@ -52,8 +53,26 @@ async function runMigration() {
       const departamento = deptoRaw !== 'NULL' ? deptoRaw.replace(/'/g, '').trim() : undefined;
       const telefonoMovil = telMovilRaw !== 'NULL' ? telMovilRaw.replace(/'/g, '').trim() : undefined;
       const telefonoFijo = telFijoRaw !== 'NULL' ? telFijoRaw.replace(/'/g, '').trim() : undefined;
+      let initialPassword = '';
+      let registroCompletado = false;
+      let debeCambiarClave = true;
 
-      const defaultBcryptPass = await bcrypt.hash('123456', 10);
+      if (rol === Role.ADMINISTRADOR) {
+        initialPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+        registroCompletado = true;
+        debeCambiarClave = !process.env.INITIAL_ADMIN_PASSWORD;
+      } else if (rol === Role.SEGURIDAD) {
+        initialPassword = process.env.INITIAL_SECURITY_PASSWORD || crypto.randomBytes(16).toString('hex');
+        registroCompletado = true;
+        debeCambiarClave = true;
+      } else {
+        // EMPLEADO: Se fija secreto aleatorio temporal inaccesible. Obliga a auto-registro
+        initialPassword = crypto.randomBytes(32).toString('hex');
+        registroCompletado = false;
+        debeCambiarClave = true;
+      }
+
+      const defaultBcryptPass = await bcrypt.hash(initialPassword, 10);
 
       try {
         await prisma.usuario.upsert({
@@ -78,10 +97,12 @@ async function runMigration() {
             telefonoFijo,
             rol,
             password: defaultBcryptPass,
+            registroCompletado,
+            debeCambiarClave,
           },
         });
         importedUsers++;
-        console.log(`  ✓ Usuario migrado: ${nombre} ${apellido} (${cedula}) -> ${rol}`);
+        console.log(`  ✓ Usuario migrado: ${nombre} ${apellido} (${cedula}) -> ${rol} (pre-registro: ${!registroCompletado})`);
       } catch (err: any) {
         console.warn(`  ⚠️ Aviso al migrar usuario ${cedula}:`, err.message);
       }

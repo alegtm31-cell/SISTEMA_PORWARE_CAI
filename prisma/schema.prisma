@@ -39,10 +39,12 @@ model Usuario {
   telefonoMovil  String?
   telefonoFijo   String?
   fotoUrl        String?
-  bloqueado      Boolean     @default(false)
-  motivoBloqueo  String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  bloqueado          Boolean     @default(false)
+  motivoBloqueo      String?
+  registroCompletado Boolean     @default(false)
+  debeCambiarClave   Boolean     @default(false)
+  createdAt          DateTime    @default(now())
+  updatedAt          DateTime    @updatedAt
 
   invitaciones       Invitado[]  @relation("EmpleadoInvitante")
   visitasAutorizadas Visita[]    @relation("VisitasAutorizadas")

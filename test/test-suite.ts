@@ -118,6 +118,7 @@ async function runTestSuite() {
           email: 'empleado@cai.local',
           rol: 'EMPLEADO',
           bloqueado: false,
+          registroCompletado: true,
           cargo: 'Analista de Operaciones',
           telefonoMovil: '04129876543',
         }),

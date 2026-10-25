@@ -1,6 +1,7 @@
 import { PrismaClient, Role } from '@prisma/client';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
 import csv = require('csv-parser');
 
@@ -70,12 +71,35 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
             const nombre = (row.nombre || row.first_name || 'Sin Nombre').trim();
             const apellido = (row.apellido || row.last_name || 'Sin Apellido').trim();
             const email = (row.email || row.correo || `${cedula}@cai.local`).trim().toLowerCase();
-            const rawPassword = (row.password || row.clave || row.contrasena || row.pass || '123456').trim();
             const rol = normalizeRole(row.rol || row.role || row.tipo);
 
-            // Cifrar clave con Bcrypt si no está previamente hasheada
-            const isAlreadyBcrypt = rawPassword.startsWith('$2a$') || rawPassword.startsWith('$2b$') || rawPassword.startsWith('$2y$');
-            const hashedPassword = isAlreadyBcrypt ? rawPassword : await bcrypt.hash(rawPassword, 10);
+            // Generación segura de contraseñas sin valores débiles predecibles
+            let initialPassword = '';
+            let registroCompletado = false;
+            let debeCambiarClave = true;
+
+            if (rol === Role.ADMINISTRADOR) {
+              initialPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+              registroCompletado = true;
+              debeCambiarClave = !process.env.INITIAL_ADMIN_PASSWORD;
+              if (!process.env.INITIAL_ADMIN_PASSWORD) {
+                console.log(`🔑 Contraseña generada para Administrador (${email}): ${initialPassword}`);
+              }
+            } else if (rol === Role.SEGURIDAD) {
+              initialPassword = process.env.INITIAL_SECURITY_PASSWORD || crypto.randomBytes(16).toString('hex');
+              registroCompletado = true;
+              debeCambiarClave = true;
+              if (!process.env.INITIAL_SECURITY_PASSWORD) {
+                console.log(`🔑 Contraseña generada para Guardia (${email}): ${initialPassword}`);
+              }
+            } else {
+              // EMPLEADO: Se genera hash inaccesible temporal. Debe realizar auto-registro (/auth/complete-registro)
+              initialPassword = crypto.randomBytes(32).toString('hex');
+              registroCompletado = false;
+              debeCambiarClave = true;
+            }
+
+            const hashedPassword = await bcrypt.hash(initialPassword, 10);
 
             // Upsert para idempotencia sin sobreescribir la contraseña si el usuario ya existe
             await prisma.usuario.upsert({
@@ -85,7 +109,7 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
                 apellido,
                 email,
                 rol,
-                // NOTA DE SEGURIDAD (Auditoría v2): No sobreescribir password para preservar cambios de clave del usuario
+                // NOTA DE SEGURIDAD: No sobreescribir password ni flags para preservar estado real
               },
               create: {
                 cedula,
@@ -94,11 +118,13 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
                 email,
                 password: hashedPassword,
                 rol,
+                registroCompletado,
+                debeCambiarClave,
               },
             });
 
             processed++;
-            console.log(`✅ [${processed}/${rows.length}] Usuario migrado: ${cedula} - ${nombre} ${apellido} (${rol})`);
+            console.log(`✅ [${processed}/${rows.length}] Usuario migrado: ${cedula} - ${nombre} ${apellido} (${rol}, pre-registro: ${!registroCompletado})`);
           }
 
           resolve(processed);
@@ -128,7 +154,8 @@ async function main() {
     possiblePaths.forEach((p) => console.log(`   - ${p}`));
     console.log('\n💡 Creando un usuario administrador por defecto...');
 
-    const defaultAdminPass = await bcrypt.hash('admin123', 10);
+    const initialAdminPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+    const defaultAdminPass = await bcrypt.hash(initialAdminPass, 10);
     await prisma.usuario.upsert({
       where: { cedula: 'V-00000000' },
       update: {},
@@ -139,9 +166,14 @@ async function main() {
         email: 'admin@cai.local',
         password: defaultAdminPass,
         rol: Role.ADMINISTRADOR,
+        registroCompletado: true,
+        debeCambiarClave: !process.env.INITIAL_ADMIN_PASSWORD,
       },
     });
-    console.log('✅ Usuario Administrador creado: admin@cai.local / clave: admin123');
+    console.log(`✅ Usuario Administrador inicial verificado: admin@cai.local`);
+    if (!process.env.INITIAL_ADMIN_PASSWORD) {
+      console.log(`🔑 Clave generada para Administrador: ${initialAdminPass}`);
+    }
     return;
   }
 
@@ -186,7 +218,7 @@ async function main() {
   }
 
   // 3. Sembrar empleado bloqueado/vetado de prueba para verificar reglas de seguridad
-  const blockedPass = await bcrypt.hash('123456', 10);
+  const blockedPass = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
   await prisma.usuario.upsert({
     where: { cedula: 'V-99887766' },
     update: {
@@ -202,6 +234,7 @@ async function main() {
       rol: Role.EMPLEADO,
       bloqueado: true,
       motivoBloqueo: 'Desincorporado por RRHH con prohibición de ingreso a plantas e instalaciones',
+      registroCompletado: true,
     },
   });
   console.log('✅ Usuario vetado de prueba (Pedro Ramírez) verificado en PostgreSQL');

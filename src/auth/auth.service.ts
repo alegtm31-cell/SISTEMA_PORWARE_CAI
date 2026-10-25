@@ -125,8 +125,8 @@ export class AuthService {
       throw new BadRequestException('El auto-registro está reservado exclusivamente para empleados pre-registrados.');
     }
 
-    // Comprobar si ya tiene perfil completado con contraseña propia
-    const yaRegistrado = user.cargo !== null || user.telefonoMovil !== null;
+    // Comprobar si ya tiene perfil completado con contraseña propia usando el campo persistido en base de datos
+    const yaRegistrado = user.registroCompletado;
 
     return {
       preRegistrado: true,
@@ -137,7 +137,7 @@ export class AuthService {
   }
 
   // Paridad con original: Completar auto-registro del empleado
-  // Seguridad: Bloquea toma de cuentas; exige rol EMPLEADO y que NO esté ya registrado
+  // Seguridad: Bloquea toma de cuentas; exige rol EMPLEADO y que registroCompletado sea false
   async completeRegistro(dto: CompleteRegistroDto, ip?: string, userAgent?: string) {
     const clean = dto.cedula.trim();
     const rawNumber = clean.replace(/^[VEJGPvejgp]-?/, '');
@@ -159,8 +159,7 @@ export class AuthService {
       throw new BadRequestException('Operación no permitida: Solo empleados pueden completar auto-registro.');
     }
 
-    const yaRegistrado = user.cargo !== null || user.telefonoMovil !== null;
-    if (yaRegistrado) {
+    if (user.registroCompletado) {
       throw new BadRequestException('Este usuario ya completó su registro previamente. Por favor inicie sesión o solicite restablecer contraseña.');
     }
 
@@ -168,6 +167,8 @@ export class AuthService {
 
     const data: any = {
       password: hashedPassword,
+      registroCompletado: true,
+      debeCambiarClave: false,
     };
     if (dto.email) data.email = dto.email.trim().toLowerCase();
     if (dto.cargo !== undefined) data.cargo = dto.cargo ? dto.cargo.trim() : null;
