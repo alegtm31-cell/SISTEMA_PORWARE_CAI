@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import type { Invitado, Usuario } from '../types';
+import { createDigitalPassPayload, generateLocalQrDataUrl } from '../utils/qrPass';
 
 interface InvitadosViewProps {
   currentUser?: Usuario | null;
@@ -20,8 +21,28 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
   const [activePass, setActivePass] = useState<Invitado | null>(null);
+  const [qrDataUrl, setQrDataUrl] = useState<string>('');
+  const [passVigencia, setPassVigencia] = useState<string>('');
   const [copied, setCopied] = useState(false);
   const [mobileTab, setMobileTab] = useState<'anunciar' | 'pases'>('anunciar');
+
+  useEffect(() => {
+    if (activePass) {
+      const { encoded, vigencia } = createDigitalPassPayload({
+        cedula: activePass.cedula,
+        nombre: activePass.nombre,
+        apellido: activePass.apellido,
+        placa: activePass.placa || undefined,
+      });
+      setPassVigencia(vigencia);
+      generateLocalQrDataUrl(encoded)
+        .then(setQrDataUrl)
+        .catch(() => setQrDataUrl(''));
+    } else {
+      setQrDataUrl('');
+    }
+  }, [activePass]);
+
 
   const [form, setForm] = useState({
     cedula: '',
@@ -109,15 +130,17 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
     });
 
     const vehicleText = inv.placa ? `🚗 *Vehículo / Placa:* ${inv.placa}\n` : '';
+    const vigenciaText = passVigencia ? `⏳ *Vigencia:* Válido hasta el ${passVigencia}\n` : '';
     const mensaje = `🏢 *PASE DE ACCESO - SISTEMA CAI*\n\n` +
-      `¡Hola *${inv.nombre}*! Se ha generado tu pase de acceso:\n\n` +
+      `¡Hola *${inv.nombre}*! Se ha generado tu pase de acceso seguro:\n\n` +
       `👤 *Visitante:* ${inv.nombre} ${inv.apellido}\n` +
       `🪪 *Código de Acceso / Cédula:* ${inv.cedula}\n` +
       vehicleText +
       `🏡 *Anfitrión:* ${hostName}\n` +
-      `📅 *Fecha:* ${fechaHoy}\n` +
+      `📅 *Fecha de Emisión:* ${fechaHoy}\n` +
+      vigenciaText +
       `📍 *Motivo:* ${inv.empresa || 'Visita Autorizada'}\n\n` +
-      `*Instrucciones:* Muestra tu cédula (${inv.cedula}) o este mensaje en la garita de seguridad para habilitar tu ingreso.`;
+      `*Instrucciones:* Presenta tu cédula (${inv.cedula}) o el código QR en la garita de seguridad para habilitar tu ingreso.`;
 
     const targetPhone = inv.telefono || form.telefono;
     const cleanPhone = (targetPhone || '').replace(/[^0-9]/g, '');
@@ -137,8 +160,9 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
 
     const text = `🏢 PASE DE ACCESO - SISTEMA CAI\n` +
       `Visitante: ${inv.nombre} ${inv.apellido}\n` +
-      `Código de Entrada: ${inv.cedula}\n` +
+      `Código / Cédula: ${inv.cedula}\n` +
       `Anfitrión: ${hostName}\n` +
+      (passVigencia ? `Vigencia: hasta ${passVigencia}\n` : '') +
       `Presenta este código en la garita para acceder.`;
 
     try {
@@ -403,7 +427,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
                   flexWrap: 'wrap',
                 }}
               >
-                {/* QR Code Escaneable */}
+                {/* QR Code Escaneable 100% Local */}
                 <div
                   style={{
                     background: '#ffffff',
@@ -416,13 +440,21 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
                     justifyContent: 'center',
                     flexShrink: 0,
                     boxShadow: '0 4px 12px rgba(0, 0, 0, 0.1)',
+                    position: 'relative',
                   }}
                 >
-                  <img
-                    src={`https://api.qrserver.com/v1/create-qr-code/?size=120x120&data=${encodeURIComponent(activePass.cedula)}`}
-                    alt={activePass.cedula}
-                    style={{ width: '84px', height: '84px' }}
-                  />
+                  {qrDataUrl ? (
+                    <img
+                      src={qrDataUrl}
+                      alt={activePass.cedula}
+                      style={{ width: '84px', height: '84px', display: 'block' }}
+                      title="Pase digital firmado localmente con vigencia"
+                    />
+                  ) : (
+                    <div style={{ fontSize: '0.65rem', color: '#64748b', textAlign: 'center' }}>
+                      Generando QR seguro...
+                    </div>
+                  )}
                 </div>
 
                 {/* Datos del Visitante */}
@@ -446,6 +478,24 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
                       Anfitrión: {activePass.empleado.nombre} {activePass.empleado.apellido}
                     </div>
                   )}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                    <span
+                      style={{
+                        fontSize: '0.68rem',
+                        fontWeight: 600,
+                        padding: '2px 6px',
+                        borderRadius: '4px',
+                        background: 'rgba(16, 185, 129, 0.12)',
+                        color: 'var(--emerald)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                      }}
+                    >
+                      ⏳ Vence: {passVigencia || 'Hoy'}
+                    </span>
+                    <span style={{ fontSize: '0.68rem', color: 'var(--text-dim)', display: 'inline-flex', alignItems: 'center', gap: '3px' }}>
+                      🔒 QR Local Seguro
+                    </span>
+                  </div>
                 </div>
 
                 {/* Botones de Envío Inmediato */}

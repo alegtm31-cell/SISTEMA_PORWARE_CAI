@@ -440,5 +440,19 @@ export const api = {
 
     return await res.json();
   },
+
+  // Healthcheck de conexión en vivo
+  async checkHealth(): Promise<boolean> {
+    try {
+      const res = await fetch(`${getApiBase()}/health`, {
+        method: 'GET',
+        headers: this.getHeaders(),
+        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(4000) : undefined,
+      });
+      return res.ok;
+    } catch {
+      return false;
+    }
+  },
 };
 

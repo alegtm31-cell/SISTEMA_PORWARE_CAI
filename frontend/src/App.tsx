@@ -10,6 +10,7 @@ import { MobileNav } from './components/MobileNav';
 import { LoginModal } from './views/LoginModal';
 import { SettingsModal } from './components/SettingsModal';
 import { CarteleraWelcomeModal } from './components/CarteleraWelcomeModal';
+import { OfflineBanner } from './components/OfflineBanner';
 import { api } from './services/api';
 import type { Usuario, Noticia } from './types';
 import { useTheme } from './hooks/useTheme';
@@ -69,6 +70,9 @@ export const App: React.FC = () => {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', background: 'var(--bg-dark)' }}>
+      {/* Alerta de conexión / Banner Offline */}
+      <OfflineBanner />
+
       {/* Navbar Superior */}
       <Navbar
         user={user}

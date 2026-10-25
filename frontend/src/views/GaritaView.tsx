@@ -23,6 +23,7 @@ import {
 import { Html5QrcodeScanner } from 'html5-qrcode';
 import { api, playChime } from '../services/api';
 import type { PersonaLookup, HistorialRegistro } from '../types';
+import { parseScannedCode } from '../utils/qrPass';
 
 export const GaritaView: React.FC = () => {
   const [query, setQuery] = useState('');
@@ -30,6 +31,13 @@ export const GaritaView: React.FC = () => {
   const [observacion, setObservacion] = useState('');
   const [loading, setLoading] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'blocked'; message: string } | null>(null);
+  const [scannedPassInfo, setScannedPassInfo] = useState<{
+    isSignedPass: boolean;
+    vigencia?: string;
+    nombre?: string;
+    placa?: string;
+    isValid: boolean;
+  } | null>(null);
   const [recentMoves, setRecentMoves] = useState<HistorialRegistro[]>([]);
   const [isBitacoraOpen, setIsBitacoraOpen] = useState(window.innerWidth > 1080);
   
@@ -137,17 +145,59 @@ export const GaritaView: React.FC = () => {
 
   // Buscar persona en vivo cuando se presiona Enter o cambia
   const handleSearch = async (val?: string) => {
-    const term = val !== undefined ? val : query;
-    if (!term.trim()) {
+    const rawTerm = val !== undefined ? val : query;
+    if (!rawTerm.trim()) {
       setPersona(null);
+      setScannedPassInfo(null);
       return;
     }
+
+    const parsed = parseScannedCode(rawTerm);
+    const term = parsed.cedula;
+
+    // Validación de Pase Digital Firmado y Expiración (Auditoría Fase 4)
+    if (parsed.isSignedPass) {
+      setScannedPassInfo({
+        isSignedPass: true,
+        vigencia: parsed.vigencia,
+        nombre: parsed.nombre,
+        placa: parsed.placa,
+        isValid: parsed.isValid,
+      });
+
+      if (parsed.isExpired) {
+        playChime('alert');
+        setPersona(null);
+        setFeedback({
+          type: 'blocked',
+          message: `⛔ PASE DIGITAL EXPIRADO: Este pase venció el ${parsed.vigencia}. No se permite el acceso con pases vencidos. Solicite un nuevo pase al anfitrión.`,
+        });
+        return;
+      }
+
+      if (!parsed.isValid && parsed.warning) {
+        playChime('alert');
+        setPersona(null);
+        setFeedback({
+          type: 'blocked',
+          message: `⛔ SEGURIDAD: ${parsed.warning} El pase digital parece haber sido adulterado o carece de firma auténtica.`,
+        });
+        return;
+      }
+    } else {
+      setScannedPassInfo(null);
+    }
+
     setLoading(true);
     setFeedback(null);
     try {
       const res = await api.lookupPersona(term);
       if (res) {
         setPersona(res);
+        // Si el pase digital incluye placa vehicular y no hay observación, auto-completar
+        if (parsed.placa && !observacion) {
+          setObservacion(`Vehículo autorizado: ${parsed.placa}`);
+        }
         if (res.estadoSeguridad === 'BLOQUEADO') {
           playChime('alert');
           setFeedback({
@@ -460,6 +510,21 @@ export const GaritaView: React.FC = () => {
                 <span style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
                   NFC-SEC // ID: {persona.id.slice(0, 8)}
                 </span>
+                {scannedPassInfo?.isSignedPass && scannedPassInfo.isValid && (
+                  <span
+                    style={{
+                      fontSize: '0.70rem',
+                      fontWeight: 700,
+                      padding: '2px 8px',
+                      borderRadius: '4px',
+                      background: 'rgba(16, 185, 129, 0.15)',
+                      color: 'var(--emerald)',
+                      border: '1px solid rgba(16, 185, 129, 0.3)',
+                    }}
+                  >
+                    🔒 Pase Firmado (Vence: {scannedPassInfo.vigencia})
+                  </span>
+                )}
               </div>
 
               {/* Ranura simulada de carnet */}

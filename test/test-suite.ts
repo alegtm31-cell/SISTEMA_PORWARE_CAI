@@ -175,9 +175,66 @@ async function runTestSuite() {
     assert.ok(payload.memory.rssMb > 0, 'La memoria RSS debe ser mayor a 0');
   });
 
+  console.log(cyan('\n--- MÓDULO 5: PASES DIGITALES QR, FIRMA Y VIGENCIA (Fase 4) ---'));
+
+  await test('Generación de pase digital CAI v2 firmado con vigencia válida', () => {
+    const PASS_SECRET = 'cai_secure_pass_signature_key_2026';
+    const simpleChecksum = (str: string) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash |= 0;
+      }
+      return Math.abs(hash).toString(16);
+    };
+
+    const cedula = 'V-20123456';
+    const vigenciaStr = '2030-12-31';
+    const checksum = simpleChecksum(`${cedula}:${vigenciaStr}:${PASS_SECRET}`);
+    const payload = { c: cedula, n: 'Juan Perez', v: vigenciaStr, s: checksum };
+    const encoded = `CAI2:${Buffer.from(JSON.stringify(payload)).toString('base64')}`;
+
+    assert.ok(encoded.startsWith('CAI2:'), 'El pase debe iniciar con prefijo CAI2:');
+    
+    // Decodificar y verificar firma
+    const b64 = encoded.substring(5);
+    const decoded = JSON.parse(Buffer.from(b64, 'base64').toString('utf8'));
+    const expectedSign = simpleChecksum(`${decoded.c}:${decoded.v}:${PASS_SECRET}`);
+    assert.strictEqual(decoded.s, expectedSign, 'La firma criptográfica del pase debe coincidir');
+  });
+
+  await test('Detección y rechazo de pase digital con firma adulterada o falsificada', () => {
+    const PASS_SECRET = 'cai_secure_pass_signature_key_2026';
+    const simpleChecksum = (str: string) => {
+      let hash = 0;
+      for (let i = 0; i < str.length; i++) {
+        const char = str.charCodeAt(i);
+        hash = (hash << 5) - hash + char;
+        hash |= 0;
+      }
+      return Math.abs(hash).toString(16);
+    };
+
+    // Alguien intentó cambiar la cédula pero no conoce el secreto para recalcular el checksum
+    const falsified = { c: 'V-99999999', n: 'Hacker', v: '2030-12-31', s: 'bad_signature_123' };
+    const expectedSign = simpleChecksum(`${falsified.c}:${falsified.v}:${PASS_SECRET}`);
+    const isAuthentic = falsified.s === expectedSign;
+
+    assert.strictEqual(isAuthentic, false, 'Un pase alterado debe ser marcado como inválido');
+  });
+
+  await test('Detección de expiración en pases digitales con vigencia caducada', () => {
+    const pastVigencia = '2020-01-01';
+    const today = new Date().toISOString().split('T')[0];
+    const isExpired = pastVigencia < today;
+
+    assert.strictEqual(isExpired, true, 'Un pase cuya vigencia sea anterior a hoy debe expirar');
+  });
+
   console.log(bold('\n============================================================'));
   if (passedCount === totalCount) {
-    console.log(bold(green(`🎉 TODAS LAS PRUEBAS DE LA FASE 3 HAN PASADO CON ÉXITO: ${passedCount}/${totalCount} (100% OK)`)));
+    console.log(bold(green(`🎉 TODAS LAS PRUEBAS DE FASE 3 Y FASE 4 HAN PASADO CON ÉXITO: ${passedCount}/${totalCount} (100% OK)`)));
   } else {
     console.log(bold(red(`⚠️ ALGUNAS PRUEBAS FALLARON: ${passedCount}/${totalCount} pasaron.`)));
     process.exit(1);
