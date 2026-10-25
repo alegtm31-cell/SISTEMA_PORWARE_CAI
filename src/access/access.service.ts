@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, ForbiddenException, BadRequestException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 @Injectable()
@@ -10,6 +10,7 @@ export class AccessService {
     isGuest: boolean,
     tipo: 'ENTRADA' | 'SALIDA',
     observacion?: string,
+    registradoPorId?: string,
   ) {
     const cleanId = targetId.trim();
 
@@ -28,13 +29,52 @@ export class AccessService {
         throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado`);
       }
 
+      // Regla 1: Control de Bloqueo persistido en base de datos
+      if (guest.bloqueado && tipo === 'ENTRADA') {
+        throw new ForbiddenException(
+          `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
+        );
+      }
+
+      // Regla 2: Anti-Passback para Visitantes
+      const lastMove = await this.prisma.historial.findFirst({
+        where: { invitadoId: guest.id },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      if (lastMove) {
+        if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+          throw new BadRequestException(
+            `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+          );
+        }
+        if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+          throw new BadRequestException(
+            `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
+          );
+        }
+      } else if (tipo === 'SALIDA') {
+        throw new BadRequestException(
+          `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
+        );
+      }
+
       return this.prisma.historial.create({
         data: {
           invitadoId: guest.id,
           tipo,
           observacion: observacion || null,
+          registradoPorId: registradoPorId || null,
         },
         include: {
+          registradoPor: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              rol: true,
+            },
+          },
           invitado: {
             include: {
               empleado: {
@@ -63,13 +103,52 @@ export class AccessService {
         throw new NotFoundException(`Usuario/Empleado con identificación '${cleanId}' no encontrado`);
       }
 
+      // Regla 1: Control de Bloqueo persistido en base de datos
+      if (user.bloqueado && tipo === 'ENTRADA') {
+        throw new ForbiddenException(
+          `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
+        );
+      }
+
+      // Regla 2: Anti-Passback para Personal Interno
+      const lastMove = await this.prisma.historial.findFirst({
+        where: { usuarioId: user.id },
+        orderBy: { timestamp: 'desc' },
+      });
+
+      if (lastMove) {
+        if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+          throw new BadRequestException(
+            `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+          );
+        }
+        if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+          throw new BadRequestException(
+            `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
+          );
+        }
+      } else if (tipo === 'SALIDA') {
+        throw new BadRequestException(
+          `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
+        );
+      }
+
       return this.prisma.historial.create({
         data: {
           usuarioId: user.id,
           tipo,
           observacion: observacion || null,
+          registradoPorId: registradoPorId || null,
         },
         include: {
+          registradoPor: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              rol: true,
+            },
+          },
           usuario: {
             select: {
               id: true,
@@ -125,8 +204,11 @@ export class AccessService {
         rol: user.rol,
         isGuest: false,
         empresa: 'Personal Interno',
-        estadoSeguridad: 'AUTORIZADO',
+        bloqueado: user.bloqueado,
+        motivoBloqueo: user.motivoBloqueo,
+        estadoSeguridad: user.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
         estaDentro,
+        ultimoRegistro: lastMove,
       };
     }
 
@@ -164,8 +246,11 @@ export class AccessService {
         isGuest: true,
         empresa: guest.empresa || 'Particular',
         empleadoAnfitrion: guest.empleado ? `${guest.empleado.nombre} ${guest.empleado.apellido}` : undefined,
-        estadoSeguridad: 'AUTORIZADO',
+        bloqueado: guest.bloqueado,
+        motivoBloqueo: guest.motivoBloqueo,
+        estadoSeguridad: guest.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
         estaDentro,
+        ultimoRegistro: lastMove,
       };
     }
 

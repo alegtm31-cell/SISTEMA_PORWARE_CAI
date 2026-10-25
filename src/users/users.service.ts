@@ -28,12 +28,15 @@ export class UsersService {
       ];
     }
 
+    const sanitizedTake = Math.min(Math.max(Number(take) || 50, 1), 100);
+    const sanitizedSkip = Math.max(Number(skip) || 0, 0);
+
     const [total, users] = await Promise.all([
       this.prisma.usuario.count({ where }),
       this.prisma.usuario.findMany({
         where,
-        skip: skip ? Number(skip) : undefined,
-        take: take ? Number(take) : undefined,
+        skip: sanitizedSkip,
+        take: sanitizedTake,
         orderBy: { createdAt: 'desc' },
         select: {
           id: true,
@@ -42,6 +45,8 @@ export class UsersService {
           apellido: true,
           email: true,
           rol: true,
+          bloqueado: true,
+          motivoBloqueo: true,
           createdAt: true,
           updatedAt: true,
           _count: {
@@ -191,10 +196,61 @@ export class UsersService {
     });
   }
 
-  async remove(id: string) {
+  async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string) {
     const user = await this.prisma.usuario.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException(`Usuario con ID '${id}' no encontrado`);
+    }
+
+    return this.prisma.usuario.update({
+      where: { id },
+      data: {
+        bloqueado,
+        motivoBloqueo: bloqueado ? motivoBloqueo || 'Bloqueado por Recursos Humanos' : null,
+      },
+      select: {
+        id: true,
+        cedula: true,
+        nombre: true,
+        apellido: true,
+        bloqueado: true,
+        motivoBloqueo: true,
+      },
+    });
+  }
+
+  async remove(id: string) {
+    const user = await this.prisma.usuario.findUnique({
+      where: { id },
+      include: {
+        _count: {
+          select: {
+            invitaciones: true,
+            registros: true,
+          },
+        },
+      },
+    });
+    if (!user) {
+      throw new NotFoundException(`Usuario con ID '${id}' no encontrado`);
+    }
+
+    // Hallazgo: evitar fallo por clave foránea si tiene registros de acceso históricos
+    if (user._count.registros > 0) {
+      // Bloqueo lógico en lugar de borrado físico destructivo para preservar evidencia histórica
+      return this.prisma.usuario.update({
+        where: { id },
+        data: {
+          bloqueado: true,
+          motivoBloqueo: 'Usuario desincorporado (historial preservado para auditoría)',
+        },
+        select: {
+          id: true,
+          cedula: true,
+          nombre: true,
+          apellido: true,
+        },
+      });
     }
 
     return this.prisma.usuario.delete({

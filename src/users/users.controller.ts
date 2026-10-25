@@ -83,6 +83,20 @@ export class UsersController {
     return this.usersService.update(id, updateUserDto);
   }
 
+  @Patch(':id/bloquear')
+  @Roles('ADMINISTRADOR')
+  @ApiOperation({
+    summary: 'Bloquear o desbloquear acceso de un usuario',
+    description: 'Permite revocar permisos de ingreso por Recursos Humanos persistiendo el motivo en base de datos. Requiere rol ADMINISTRADOR.',
+  })
+  async setBloqueo(
+    @Param('id') id: string,
+    @Body('bloqueado') bloqueado: boolean,
+    @Body('motivoBloqueo') motivoBloqueo?: string,
+  ) {
+    return this.usersService.setBloqueo(id, bloqueado, motivoBloqueo);
+  }
+
   @Delete(':id')
   @Roles('ADMINISTRADOR')
   @ApiOperation({

@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Param, Body, Query, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body, Query, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth, ApiBody } from '@nestjs/swagger';
 import { HistorialService } from './historial.service';
 import { FilterHistorialDto } from './dto/filter-historial.dto';
@@ -62,8 +62,8 @@ export class HistorialController {
   @Patch(':id/observacion')
   @Roles('ADMINISTRADOR', 'SEGURIDAD')
   @ApiOperation({
-    summary: 'Editar observación de un registro de acceso',
-    description: 'Permite a los operadores de garita o administradores añadir o modificar notas de auditoría en un registro de acceso.',
+    summary: 'Añadir nota de auditoría a un registro de acceso (Solo Adición)',
+    description: 'Permite a los operadores de garita o administradores añadir notas de auditoría fechadas y firmadas por el usuario autenticado.',
   })
   @ApiBody({
     schema: {
@@ -77,13 +77,14 @@ export class HistorialController {
       required: ['observacion'],
     },
   })
-  @ApiResponse({ status: 200, description: 'Observación actualizada.' })
+  @ApiResponse({ status: 200, description: 'Observación agregada.' })
   @ApiResponse({ status: 404, description: 'Registro de historial no encontrado.' })
   async updateObservacion(
     @Param('id') id: string,
     @Body('observacion') observacion: string,
+    @Req() req: any,
   ) {
-    return this.historialService.updateObservacion(id, observacion);
+    return this.historialService.updateObservacion(id, observacion, req.user);
   }
 }
 

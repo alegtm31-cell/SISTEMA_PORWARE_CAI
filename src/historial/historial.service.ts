@@ -2,12 +2,25 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { FilterHistorialDto } from './dto/filter-historial.dto';
 
+function getStartOfTodayCaracas(): Date {
+  // Caracas está en UTC-4 continuo (sin horario de verano)
+  const now = new Date();
+  const formatter = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Caracas',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  });
+  const dateStr = formatter.format(now); // "YYYY-MM-DD"
+  return new Date(`${dateStr}T00:00:00.000-04:00`);
+}
+
 @Injectable()
 export class HistorialService {
   constructor(private readonly prisma: PrismaService) {}
 
   async findAll(filter: FilterHistorialDto) {
-    const { startDate, endDate, tipo, search, targetType, skip, take } = filter;
+    const { tipo, targetType, startDate, endDate, search, skip, take } = filter;
     const where: any = {};
 
     if (tipo) {
@@ -22,48 +35,43 @@ export class HistorialService {
 
     if (startDate || endDate) {
       where.timestamp = {};
-      if (startDate) {
-        where.timestamp.gte = new Date(startDate);
-      }
-      if (endDate) {
-        where.timestamp.lte = new Date(endDate);
-      }
+      if (startDate) where.timestamp.gte = new Date(startDate);
+      if (endDate) where.timestamp.lte = new Date(endDate);
     }
 
     if (search) {
       const term = search.trim();
       where.OR = [
         { observacion: { contains: term, mode: 'insensitive' } },
-        {
-          usuario: {
-            OR: [
-              { cedula: { contains: term, mode: 'insensitive' } },
-              { nombre: { contains: term, mode: 'insensitive' } },
-              { apellido: { contains: term, mode: 'insensitive' } },
-            ],
-          },
-        },
-        {
-          invitado: {
-            OR: [
-              { cedula: { contains: term, mode: 'insensitive' } },
-              { nombre: { contains: term, mode: 'insensitive' } },
-              { apellido: { contains: term, mode: 'insensitive' } },
-              { empresa: { contains: term, mode: 'insensitive' } },
-            ],
-          },
-        },
+        { usuario: { cedula: { contains: term, mode: 'insensitive' } } },
+        { usuario: { nombre: { contains: term, mode: 'insensitive' } } },
+        { usuario: { apellido: { contains: term, mode: 'insensitive' } } },
+        { invitado: { cedula: { contains: term, mode: 'insensitive' } } },
+        { invitado: { nombre: { contains: term, mode: 'insensitive' } } },
+        { invitado: { apellido: { contains: term, mode: 'insensitive' } } },
+        { invitado: { empresa: { contains: term, mode: 'insensitive' } } },
       ];
     }
+
+    const sanitizedTake = Math.min(Math.max(Number(take) || 50, 1), 100);
+    const sanitizedSkip = Math.max(Number(skip) || 0, 0);
 
     const [total, data] = await Promise.all([
       this.prisma.historial.count({ where }),
       this.prisma.historial.findMany({
         where,
-        skip: skip ? Number(skip) : undefined,
-        take: take ? Number(take) : 50,
+        skip: sanitizedSkip,
+        take: sanitizedTake,
         orderBy: { timestamp: 'desc' },
         include: {
+          registradoPor: {
+            select: {
+              id: true,
+              nombre: true,
+              apellido: true,
+              rol: true,
+            },
+          },
           usuario: {
             select: {
               id: true,
@@ -94,8 +102,7 @@ export class HistorialService {
   }
 
   async getStats() {
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
+    const startOfToday = getStartOfTodayCaracas();
 
     const [entradasHoy, salidasHoy, totalHoy, ultimosMovimientos] = await Promise.all([
       this.prisma.historial.count({
@@ -116,9 +123,16 @@ export class HistorialService {
         },
       }),
       this.prisma.historial.findMany({
-        take: 5,
+        take: 8,
         orderBy: { timestamp: 'desc' },
         include: {
+          registradoPor: {
+            select: {
+              nombre: true,
+              apellido: true,
+              rol: true,
+            },
+          },
           usuario: { select: { nombre: true, apellido: true, cedula: true } },
           invitado: { select: { nombre: true, apellido: true, cedula: true } },
         },
@@ -202,11 +216,14 @@ export class HistorialService {
         where: {
           OR: [{ id: clean }, { cedula: { equals: clean, mode: 'insensitive' } }],
         },
+        include: {
+          empleado: { select: { nombre: true, apellido: true } },
+        },
       }),
     ]);
 
     if (!user && !guest) {
-      throw new NotFoundException(`No se encontró persona con ID o cédula '${idOrCedula}'`);
+      throw new NotFoundException(`No se encontró registro para la persona con identificación '${clean}'`);
     }
 
     const where: any = {};
@@ -217,6 +234,15 @@ export class HistorialService {
       where,
       orderBy: { timestamp: 'desc' },
       take: 100,
+      include: {
+        registradoPor: {
+          select: {
+            nombre: true,
+            apellido: true,
+            rol: true,
+          },
+        },
+      },
     });
 
     return {
@@ -229,15 +255,26 @@ export class HistorialService {
     };
   }
 
-  async updateObservacion(id: string, observacion: string) {
+  // Observaciones de solo adición con trazabilidad de autor y hora (Hallazgo 8)
+  async updateObservacion(id: string, observacion: string, user?: any) {
     const record = await this.prisma.historial.findUnique({ where: { id } });
     if (!record) {
       throw new NotFoundException(`Registro de historial con ID '${id}' no encontrado`);
     }
 
+    const timeStr = new Intl.DateTimeFormat('es-VE', {
+      timeZone: 'America/Caracas',
+      dateStyle: 'short',
+      timeStyle: 'medium',
+    }).format(new Date());
+
+    const autor = user ? `${user.nombre} ${user.apellido} (${user.rol})` : 'Operador';
+    const nuevaEntrada = `[${timeStr} - ${autor}]: ${observacion.trim()}`;
+    const observacionFinal = record.observacion ? `${record.observacion}\n${nuevaEntrada}` : nuevaEntrada;
+
     return this.prisma.historial.update({
       where: { id },
-      data: { observacion },
+      data: { observacion: observacionFinal },
     });
   }
 }

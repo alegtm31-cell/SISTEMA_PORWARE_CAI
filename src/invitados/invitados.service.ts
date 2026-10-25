@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateInvitadoDto } from './dto/create-invitado.dto';
 import { UpdateInvitadoDto } from './dto/update-invitado.dto';
@@ -7,8 +7,12 @@ import { UpdateInvitadoDto } from './dto/update-invitado.dto';
 export class InvitadosService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async create(dto: CreateInvitadoDto, defaultEmpleadoId: string) {
-    const hostId = dto.empleadoId || defaultEmpleadoId;
+  async create(dto: CreateInvitadoDto, currentUser: any) {
+    // Hallazgo 7: Si es EMPLEADO, forzar que el anfitrión sea él mismo
+    let hostId = currentUser.id;
+    if (currentUser.rol === 'ADMINISTRADOR' || currentUser.rol === 'SEGURIDAD') {
+      hostId = dto.empleadoId || currentUser.id;
+    }
 
     // Verificar que el empleado anfitrión exista
     const host = await this.prisma.usuario.findUnique({ where: { id: hostId } });
@@ -18,7 +22,7 @@ export class InvitadosService {
 
     const cleanCedula = dto.cedula.trim();
 
-    // Upsert: si el visitante ya existe en el sistema, actualiza sus datos y asigna la nueva visita
+    // Upsert: si el visitante ya existe en el sistema, actualiza sus datos y vincula la visita
     return this.prisma.invitado.upsert({
       where: { cedula: cleanCedula },
       update: {
@@ -66,12 +70,15 @@ export class InvitadosService {
       ];
     }
 
+    const sanitizedTake = Math.min(Math.max(Number(take) || 50, 1), 100);
+    const sanitizedSkip = Math.max(Number(skip) || 0, 0);
+
     const [total, data] = await Promise.all([
       this.prisma.invitado.count({ where }),
       this.prisma.invitado.findMany({
         where,
-        skip: skip ? Number(skip) : undefined,
-        take: take ? Number(take) : undefined,
+        skip: sanitizedSkip,
+        take: sanitizedTake,
         orderBy: { createdAt: 'desc' },
         include: {
           empleado: {
@@ -93,7 +100,7 @@ export class InvitadosService {
     return { total, data };
   }
 
-  async findOne(idOrCedula: string) {
+  async findOne(idOrCedula: string, currentUser?: any) {
     const clean = idOrCedula.trim();
     const guest = await this.prisma.invitado.findFirst({
       where: {
@@ -123,6 +130,11 @@ export class InvitadosService {
       throw new NotFoundException(`Invitado '${idOrCedula}' no encontrado`);
     }
 
+    // Hallazgo 7: Si es EMPLEADO, solo puede ver sus propios invitados
+    if (currentUser && currentUser.rol === 'EMPLEADO' && guest.empleadoId !== currentUser.id) {
+      throw new ForbiddenException('No tiene permisos para ver detalles de invitados registrados por otros empleados');
+    }
+
     return guest;
   }
 
@@ -139,10 +151,15 @@ export class InvitadosService {
     });
   }
 
-  async update(id: string, dto: UpdateInvitadoDto) {
+  async update(id: string, dto: UpdateInvitadoDto, currentUser?: any) {
     const existing = await this.prisma.invitado.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Invitado con ID '${id}' no encontrado`);
+    }
+
+    // Hallazgo 7: Validar que el empleado sea dueño del registro
+    if (currentUser && currentUser.rol === 'EMPLEADO' && existing.empleadoId !== currentUser.id) {
+      throw new ForbiddenException('No tiene permisos para modificar visitantes creados por otro empleado');
     }
 
     const data: any = {};
@@ -151,7 +168,8 @@ export class InvitadosService {
     if (dto.empresa !== undefined) data.empresa = dto.empresa ? dto.empresa.trim() : null;
     if (dto.cedula) data.cedula = dto.cedula.trim();
 
-    if (dto.empleadoId) {
+    // Solo admin puede transferir anfitrión
+    if (dto.empleadoId && currentUser?.rol === 'ADMINISTRADOR') {
       const host = await this.prisma.usuario.findUnique({ where: { id: dto.empleadoId } });
       if (!host) {
         throw new BadRequestException(`El empleado anfitrión (ID: ${dto.empleadoId}) no existe`);
@@ -175,10 +193,29 @@ export class InvitadosService {
     });
   }
 
-  async remove(id: string) {
+  async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string) {
     const existing = await this.prisma.invitado.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Invitado con ID '${id}' no encontrado`);
+    }
+
+    return this.prisma.invitado.update({
+      where: { id },
+      data: {
+        bloqueado,
+        motivoBloqueo: bloqueado ? motivoBloqueo || 'Bloqueado por seguridad' : null,
+      },
+    });
+  }
+
+  async remove(id: string, currentUser?: any) {
+    const existing = await this.prisma.invitado.findUnique({ where: { id } });
+    if (!existing) {
+      throw new NotFoundException(`Invitado con ID '${id}' no encontrado`);
+    }
+
+    if (currentUser && currentUser.rol === 'EMPLEADO' && existing.empleadoId !== currentUser.id) {
+      throw new ForbiddenException('No tiene permisos para cancelar visitas de otros empleados');
     }
 
     return this.prisma.invitado.delete({

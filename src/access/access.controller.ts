@@ -1,4 +1,4 @@
-import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, UseGuards, Req } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AccessService } from './access.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -34,8 +34,14 @@ export class AccessController {
   @ApiResponse({ status: 201, description: 'Entrada registrada con éxito en el historial.' })
   @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado por la identificación provista.' })
   @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol SEGURIDAD o ADMINISTRADOR.' })
-  async registerEntry(@Body() dto: RegisterAccessDto) {
-    return await this.accessService.registerAccess(dto.targetId, dto.isGuest, 'ENTRADA', dto.observacion);
+  async registerEntry(@Body() dto: RegisterAccessDto, @Req() req: any) {
+    return await this.accessService.registerAccess(
+      dto.targetId,
+      dto.isGuest,
+      'ENTRADA',
+      dto.observacion,
+      req.user?.id,
+    );
   }
 
   @Post('check-out')
@@ -47,8 +53,14 @@ export class AccessController {
   @ApiResponse({ status: 201, description: 'Salida registrada con éxito en el historial.' })
   @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado por la identificación provista.' })
   @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol SEGURIDAD o ADMINISTRADOR.' })
-  async registerExit(@Body() dto: RegisterAccessDto) {
-    return await this.accessService.registerAccess(dto.targetId, dto.isGuest, 'SALIDA', dto.observacion);
+  async registerExit(@Body() dto: RegisterAccessDto, @Req() req: any) {
+    return await this.accessService.registerAccess(
+      dto.targetId,
+      dto.isGuest,
+      'SALIDA',
+      dto.observacion,
+      req.user?.id,
+    );
   }
 }
 

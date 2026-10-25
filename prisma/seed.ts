@@ -184,6 +184,27 @@ async function main() {
     });
     console.log('✅ Invitado de prueba (Mariana Gómez) verificado en PostgreSQL');
   }
+
+  // 3. Sembrar empleado bloqueado/vetado de prueba para verificar reglas de seguridad
+  const blockedPass = await bcrypt.hash('123456', 10);
+  await prisma.usuario.upsert({
+    where: { cedula: 'V-99887766' },
+    update: {
+      bloqueado: true,
+      motivoBloqueo: 'Desincorporado por RRHH con prohibición de ingreso a plantas e instalaciones',
+    },
+    create: {
+      cedula: 'V-99887766',
+      nombre: 'Pedro',
+      apellido: 'Ramírez',
+      email: 'pramirez_vetado@empresa.com',
+      password: blockedPass,
+      rol: Role.EMPLEADO,
+      bloqueado: true,
+      motivoBloqueo: 'Desincorporado por RRHH con prohibición de ingreso a plantas e instalaciones',
+    },
+  });
+  console.log('✅ Usuario vetado de prueba (Pedro Ramírez) verificado en PostgreSQL');
 }
 
 main()

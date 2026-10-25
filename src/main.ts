@@ -1,12 +1,25 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import helmet from 'helmet';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
-  app.enableCors();
+  // Seguridad de cabeceras HTTP con Helmet
+  app.use(
+    helmet({
+      contentSecurityPolicy: false, // Habilita la ejecución limpia de Swagger UI
+      crossOriginEmbedderPolicy: false,
+    }),
+  );
+
+  // Configuración de CORS segura
+  app.enableCors({
+    origin: true,
+    credentials: true,
+  });
 
   // Validación global de DTOs con class-validator
   app.useGlobalPipes(
@@ -61,4 +74,3 @@ async function bootstrap() {
 }
 
 bootstrap();
-

@@ -18,43 +18,77 @@ enum TipoIngreso {
   SALIDA
 }
 
-model Usuario {
-  id        String   @id @default(uuid())
-  cedula    String   @unique
-  nombre    String
-  apellido  String
-  email     String   @unique
-  password  String
-  rol       Role     @default(EMPLEADO)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+enum EstadoVisita {
+  PENDIENTE
+  AUTORIZADA
+  FINALIZADA
+  DENEGADA
+}
 
-  invitaciones Invitado[]  @relation("EmpleadoInvitante")
-  registros    Historial[]
+model Usuario {
+  id             String      @id @default(uuid())
+  cedula         String      @unique
+  nombre         String
+  apellido       String
+  email          String      @unique
+  password       String
+  rol            Role        @default(EMPLEADO)
+  bloqueado      Boolean     @default(false)
+  motivoBloqueo  String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  invitaciones       Invitado[]  @relation("EmpleadoInvitante")
+  visitasAutorizadas Visita[]    @relation("VisitasAutorizadas")
+  registros          Historial[] @relation("UsuarioAcceso")
+  registrosOperados  Historial[] @relation("OperadorRegistro")
 }
 
 model Invitado {
-  id          String   @id @default(uuid())
-  cedula      String   @unique
-  nombre      String
-  apellido    String
-  empresa     String?
-  empleadoId  String
-  empleado    Usuario  @relation("EmpleadoInvitante", fields: [empleadoId], references: [id])
-  createdAt   DateTime @default(now())
+  id            String      @id @default(uuid())
+  cedula        String      @unique
+  nombre        String
+  apellido      String
+  empresa       String?
+  bloqueado     Boolean     @default(false)
+  motivoBloqueo String?
+  empleadoId    String
+  empleado      Usuario     @relation("EmpleadoInvitante", fields: [empleadoId], references: [id])
+  createdAt     DateTime    @default(now())
 
-  historial Historial[]
+  visitas       Visita[]
+  historial     Historial[]
+}
+
+model Visita {
+  id          String       @id @default(uuid())
+  invitadoId  String
+  invitado    Invitado     @relation(fields: [invitadoId], references: [id], onDelete: Cascade)
+  empleadoId  String
+  empleado    Usuario      @relation("VisitasAutorizadas", fields: [empleadoId], references: [id], onDelete: Cascade)
+  fecha       DateTime     @default(now())
+  motivo      String?
+  estado      EstadoVisita @default(PENDIENTE)
+  observacion String?
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+
+  historial   Historial[]
 }
 
 model Historial {
-  id          String      @id @default(uuid())
-  invitadoId  String?
-  invitado    Invitado?   @relation(fields: [invitadoId], references: [id])
-  usuarioId   String?
-  usuario     Usuario?    @relation(fields: [usuarioId], references: [id])
-  tipo        TipoIngreso
-  timestamp   DateTime    @default(now())
-  observacion String?
+  id              String       @id @default(uuid())
+  invitadoId      String?
+  invitado        Invitado?    @relation(fields: [invitadoId], references: [id])
+  usuarioId       String?
+  usuario         Usuario?     @relation("UsuarioAcceso", fields: [usuarioId], references: [id])
+  registradoPorId String?
+  registradoPor   Usuario?     @relation("OperadorRegistro", fields: [registradoPorId], references: [id])
+  visitaId        String?
+  visita          Visita?      @relation(fields: [visitaId], references: [id])
+  tipo            TipoIngreso
+  timestamp       DateTime     @default(now())
+  observacion     String?
 }
 
 model Noticia {
