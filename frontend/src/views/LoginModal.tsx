@@ -142,12 +142,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
     }
   };
 
-  const quickLogin = (id: string, pass: string) => {
-    setIdentifier(id);
-    setPassword(pass);
-    setActiveTab('login');
-  };
-
   return (
     <div
       style={{
@@ -327,54 +321,6 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
                 <span>{loading ? 'Verificando...' : 'Entrar al Sistema'}</span>
               </button>
             </form>
-
-            {/* Cuentas Rápidas de Demostración */}
-            <div style={{ marginTop: '20px', paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-              <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 700, marginBottom: '8px' }}>
-                Acceso Rápido de Prueba (Roles del Sistema)
-              </div>
-
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
-                  onClick={() => quickLogin('admin@cai.local', 'admin123')}
-                >
-                  <div style={{ textAlign: 'left' }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>Carlos Rodríguez</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>admin@cai.local</span>
-                  </div>
-                  <span className="badge badge-admin">ADMIN</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
-                  onClick={() => quickLogin('seguridad@cai.local', 'guardiaPass1')}
-                >
-                  <div style={{ textAlign: 'left' }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>José Hernández</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>seguridad@cai.local</span>
-                  </div>
-                  <span className="badge badge-seguridad">GARITA</span>
-                </button>
-
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ justifyContent: 'space-between', padding: '7px 10px', fontSize: '0.8rem' }}
-                  onClick={() => quickLogin('mfernandez@cai.local', 'empleado2024')}
-                >
-                  <div style={{ textAlign: 'left' }}>
-                    <span style={{ fontWeight: 600, color: 'var(--text-main)', display: 'block' }}>María Fernández</span>
-                    <span style={{ fontSize: '0.7rem', color: 'var(--text-dim)' }}>mfernandez@cai.local</span>
-                  </div>
-                  <span className="badge badge-empleado">EMPLEADO</span>
-                </button>
-              </div>
-            </div>
           </>
         )}
 

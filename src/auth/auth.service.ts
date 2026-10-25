@@ -41,6 +41,19 @@ export class AuthService {
       throw new UnauthorizedException('Credenciales inválidas (usuario o contraseña incorrectos)');
     }
 
+    // Seguridad: Bloquear inicio de sesión si el usuario está vetado/deshabilitado
+    if (user.bloqueado) {
+      await this.auditoriaService.registrar({
+        usuarioId: user.id,
+        accion: 'LOGIN_BLOQUEADO',
+        entidad: 'Auth',
+        detalles: { identificador: cleanId, motivo: user.motivoBloqueo || 'Usuario bloqueado por administración' },
+        ip,
+        userAgent,
+      });
+      throw new UnauthorizedException(`Acceso denegado: Usuario bloqueado por administración (${user.motivoBloqueo || 'Consulte a Recursos Humanos'}).`);
+    }
+
     const isMatch = await bcrypt.compare(rawPass, user.password);
     if (!isMatch) {
       await this.auditoriaService.registrar({
@@ -86,8 +99,8 @@ export class AuthService {
     };
   }
 
-
   // Paridad con original: Verificar si la cédula está pre-registrada por el Administrador
+  // Seguridad: No expone datos sensibles (correo, rol, teléfonos) a consultas anónimas
   async checkPreRegistro(cedula: string) {
     const clean = cedula.trim();
     const rawNumber = clean.replace(/^[VEJGPvejgp]-?/, '');
@@ -103,28 +116,53 @@ export class AuthService {
       );
     }
 
+    if (user.bloqueado) {
+      throw new BadRequestException('Esta cuenta está deshabilitada o bloqueada por la administración.');
+    }
+
+    // Solo empleados pueden auto-registrarse
+    if (user.rol !== 'EMPLEADO') {
+      throw new BadRequestException('El auto-registro está reservado exclusivamente para empleados pre-registrados.');
+    }
+
     // Comprobar si ya tiene perfil completado con contraseña propia
     const yaRegistrado = user.cargo !== null || user.telefonoMovil !== null;
 
     return {
       preRegistrado: true,
       yaRegistrado,
-      id: user.id,
-      cedula: user.cedula,
       nombre: user.nombre,
       apellido: user.apellido,
-      email: user.email,
-      cargo: user.cargo,
-      departamento: user.departamento,
-      telefonoMovil: user.telefonoMovil,
-      telefonoFijo: user.telefonoFijo,
-      rol: user.rol,
     };
   }
 
   // Paridad con original: Completar auto-registro del empleado
-  async completeRegistro(dto: CompleteRegistroDto) {
-    const { id } = await this.checkPreRegistro(dto.cedula);
+  // Seguridad: Bloquea toma de cuentas; exige rol EMPLEADO y que NO esté ya registrado
+  async completeRegistro(dto: CompleteRegistroDto, ip?: string, userAgent?: string) {
+    const clean = dto.cedula.trim();
+    const rawNumber = clean.replace(/^[VEJGPvejgp]-?/, '');
+    const variants = [clean, rawNumber, `V-${rawNumber}`, `E-${rawNumber}`, `J-${rawNumber}`];
+
+    const user = await this.prisma.usuario.findFirst({
+      where: { cedula: { in: variants, mode: 'insensitive' } },
+    });
+
+    if (!user) {
+      throw new NotFoundException('Esta cédula no se encuentra pre-registrada.');
+    }
+
+    if (user.bloqueado) {
+      throw new BadRequestException('Esta cuenta se encuentra bloqueada por la administración.');
+    }
+
+    if (user.rol !== 'EMPLEADO') {
+      throw new BadRequestException('Operación no permitida: Solo empleados pueden completar auto-registro.');
+    }
+
+    const yaRegistrado = user.cargo !== null || user.telefonoMovil !== null;
+    if (yaRegistrado) {
+      throw new BadRequestException('Este usuario ya completó su registro previamente. Por favor inicie sesión o solicite restablecer contraseña.');
+    }
 
     const hashedPassword = await bcrypt.hash(dto.password, 10);
 
@@ -138,7 +176,7 @@ export class AuthService {
     if (dto.telefonoFijo !== undefined) data.telefonoFijo = dto.telefonoFijo ? dto.telefonoFijo.trim() : null;
 
     const updated = await this.prisma.usuario.update({
-      where: { id },
+      where: { id: user.id },
       data,
       select: {
         id: true,
@@ -163,6 +201,15 @@ export class AuthService {
     };
 
     const accessToken = this.jwtService.sign(payload);
+
+    await this.auditoriaService.registrar({
+      usuarioId: updated.id,
+      accion: 'REGISTRO_COMPLETADO',
+      entidad: 'Usuario',
+      detalles: { cedula: updated.cedula, email: updated.email, rol: updated.rol },
+      ip,
+      userAgent,
+    });
 
     return {
       message: 'Registro completado exitosamente. Bienvenido al sistema CAI.',

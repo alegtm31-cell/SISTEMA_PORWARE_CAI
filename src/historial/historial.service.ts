@@ -139,13 +139,16 @@ export class HistorialService {
       }),
     ]);
 
+    const personasDentro = await this.getPersonasDentro();
+    const dentroReal = personasDentro.length;
+
     return {
       fecha: new Date().toISOString(),
       entradasHoy,
       salidasHoy,
       totalHoy,
-      dentroEstimado: Math.max(0, entradasHoy - salidasHoy),
-      personasDentroAproximado: Math.max(0, entradasHoy - salidasHoy),
+      dentroEstimado: dentroReal,
+      personasDentroAproximado: dentroReal,
       ultimosMovimientos,
     };
   }
@@ -349,7 +352,14 @@ export class HistorialService {
         placa,
         operador,
         obs,
-      ].map((val) => `"${String(val).replace(/"/g, '""')}"`).join(',');
+      ].map((val) => {
+        let str = String(val).replace(/"/g, '""');
+        // Seguridad: Neutralizar inyección de fórmulas CSV para Excel (=, +, -, @)
+        if (/^[=+\-@\t\r]/.test(str)) {
+          str = `'${str}`;
+        }
+        return `"${str}"`;
+      }).join(',');
     });
 
     return '\uFEFF' + [header.join(','), ...rows].join('\r\n');

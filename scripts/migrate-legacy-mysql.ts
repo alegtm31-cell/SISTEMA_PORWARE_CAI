@@ -1,6 +1,6 @@
 import * as fs from 'fs';
 import * as path from 'path';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, Role } from '@prisma/client';
 import * as bcrypt from 'bcryptjs';
 
 /**
@@ -9,6 +9,7 @@ import * as bcrypt from 'bcryptjs';
  * - Normaliza cédulas al formato V-XXXXXXX
  * - Convierte roles numéricos (1: ADMIN, 2: EMPLEADO, 3: SEGURIDAD)
  * - Mapea contraseñas sha1 legadas forzando actualización en primer inicio
+ * - Mapea campos exactos del schema de Prisma (email, password, telefonoMovil, etc.)
  * - Asocia invitados históricos y noticias
  */
 
@@ -27,11 +28,10 @@ async function runMigration() {
 
   // 1. Extraer e importar usuarios
   const userInsertRegex = /INSERT INTO `usuarios` \([^)]+\) VALUES\s*([^;]+);/gi;
-  const match = userInsertRegex.exec(sqlContent);
+  const matchUser = userInsertRegex.exec(sqlContent);
 
-  if (match) {
-    const rawValues = match[1];
-    // Dividir filas: (1, 1, '11111111', 'Admin', 'CAI', ...)
+  if (matchUser) {
+    const rawValues = matchUser[1];
     const rowRegex = /\((\d+),\s*(\d+),\s*'([^']*)',\s*'([^']*)',\s*'([^']*)',\s*(NULL|'[^']*'),\s*(NULL|'[^']*'),\s*(NULL|'[^']*'),\s*(NULL|'[^']*'),\s*(NULL|'[^']*'),\s*'([^']*)'\)/g;
     
     let rowMatch;
@@ -40,22 +40,19 @@ async function runMigration() {
     while ((rowMatch = rowRegex.exec(rawValues)) !== null) {
       const [, , rawRol, rawCedula, nombre, apellido, cargoRaw, deptoRaw, correoRaw, telMovilRaw, telFijoRaw] = rowMatch;
 
-      // Normalizar rol
-      let rol: 'ADMINISTRADOR' | 'EMPLEADO' | 'SEGURIDAD' = 'EMPLEADO';
-      if (rawRol === '1') rol = 'ADMINISTRADOR';
-      if (rawRol === '3') rol = 'SEGURIDAD';
+      let rol: Role = Role.EMPLEADO;
+      if (rawRol === '1') rol = Role.ADMINISTRADOR;
+      if (rawRol === '3') rol = Role.SEGURIDAD;
 
-      // Normalizar cédula con prefijo
       const cedulaDigits = rawCedula.replace(/\D/g, '');
       const cedula = `V-${cedulaDigits}`;
 
-      const correo = correoRaw !== 'NULL' ? correoRaw.replace(/'/g, '').trim().toLowerCase() : `${cedulaDigits.toLowerCase()}@cai.local`;
+      const email = correoRaw !== 'NULL' ? correoRaw.replace(/'/g, '').trim().toLowerCase() : `${cedulaDigits.toLowerCase()}@cai.local`;
       const cargo = cargoRaw !== 'NULL' ? cargoRaw.replace(/'/g, '').trim() : undefined;
       const departamento = deptoRaw !== 'NULL' ? deptoRaw.replace(/'/g, '').trim() : undefined;
-      const telefono = telMovilRaw !== 'NULL' ? telMovilRaw.replace(/'/g, '').trim() : telFijoRaw !== 'NULL' ? telFijoRaw.replace(/'/g, '').trim() : undefined;
+      const telefonoMovil = telMovilRaw !== 'NULL' ? telMovilRaw.replace(/'/g, '').trim() : undefined;
+      const telefonoFijo = telFijoRaw !== 'NULL' ? telFijoRaw.replace(/'/g, '').trim() : undefined;
 
-      // Como la clave original está en sha1 ('7c4a8d09ca37...'), se genera un hash bcrypt seguro temporal
-      // con clave provisional 123456 para forzar cambio en primer ingreso
       const defaultBcryptPass = await bcrypt.hash('123456', 10);
 
       try {
@@ -66,19 +63,21 @@ async function runMigration() {
             apellido,
             cargo,
             departamento,
-            telefono,
+            telefonoMovil,
+            telefonoFijo,
             rol,
           },
           create: {
             cedula,
             nombre,
             apellido,
-            correo,
+            email,
             cargo,
             departamento,
-            telefono,
+            telefonoMovil,
+            telefonoFijo,
             rol,
-            clave: defaultBcryptPass,
+            password: defaultBcryptPass,
           },
         });
         importedUsers++;
@@ -89,8 +88,36 @@ async function runMigration() {
     }
 
     console.log(`✅ Total de usuarios legados procesados: ${importedUsers}`);
-  } else {
-    console.log('ℹ️ No se encontraron inserts de usuarios en cai.sql');
+  }
+
+  // 2. Extraer e importar noticias
+  const noticiaRegex = /INSERT INTO `noticias` \([^)]+\) VALUES\s*([^;]+);/gi;
+  const matchNoticia = noticiaRegex.exec(sqlContent);
+  if (matchNoticia) {
+    const rawNoticias = matchNoticia[1];
+    const nRowRegex = /\((\d+),\s*'([^']*)',\s*'([^']*)',\s*(NULL|'[^']*'),\s*'([^']*)'\)/g;
+    let nMatch;
+    let importedNoticias = 0;
+
+    while ((nMatch = nRowRegex.exec(rawNoticias)) !== null) {
+      const [, , titulo, contenido, imagenRaw] = nMatch;
+      const imagen = imagenRaw !== 'NULL' ? imagenRaw.replace(/'/g, '').trim() : undefined;
+
+      try {
+        await prisma.noticia.create({
+          data: {
+            titulo,
+            contenido,
+            imagenUrl: imagen,
+          },
+        });
+        importedNoticias++;
+        console.log(`  ✓ Noticia migrada: ${titulo}`);
+      } catch (err: any) {
+        console.warn(`  ⚠️ Aviso al migrar noticia:`, err.message);
+      }
+    }
+    console.log(`✅ Total de noticias legadas procesadas: ${importedNoticias}`);
   }
 
   console.log('🎉 Migración de datos legados finalizada con éxito.');

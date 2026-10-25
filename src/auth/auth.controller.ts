@@ -50,8 +50,10 @@ export class AuthController {
   })
   @ApiResponse({ status: 201, description: 'Auto-registro completado con éxito.' })
   @ApiResponse({ status: 404, description: 'Cédula no pre-registrada.' })
-  async completeRegistro(@Body() dto: CompleteRegistroDto) {
-    return this.authService.completeRegistro(dto);
+  async completeRegistro(@Body() dto: CompleteRegistroDto, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] as string;
+    return this.authService.completeRegistro(dto, clientIp, userAgent);
   }
 
   @UseGuards(JwtAuthGuard)

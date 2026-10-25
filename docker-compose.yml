@@ -7,7 +7,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en su archivo .env}
       POSTGRES_DB: ${POSTGRES_DB:-cai_db}
     # Seguridad: Exponer solo a localhost para herramientas de administración local (DBeaver)
     ports:
@@ -15,7 +15,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-cai_db}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -32,9 +32,9 @@ services:
     ports:
       - "3000:3000"
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-cai_db}?schema=public"
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cai_db}?schema=public"
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:-cai_jwt_secret_key_porware_migration_2026}
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en su archivo .env}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
     volumes:
       - ./prisma/data:/usr/src/app/prisma/data

@@ -14,9 +14,9 @@ import { PrismaModule } from '../prisma/prisma.module';
     PassportModule.register({ defaultStrategy: 'jwt' }),
     JwtModule.registerAsync({
       useFactory: () => {
-        const secret = process.env.JWT_SECRET || 'cai_jwt_secret_key_porware_migration_2026';
-        if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-          throw new Error('FATAL: La variable de entorno JWT_SECRET es obligatoria para iniciar el servidor.');
+        const secret = process.env.JWT_SECRET;
+        if (!secret) {
+          throw new Error('FATAL: La variable de entorno JWT_SECRET es estrictamente obligatoria para arrancar la API.');
         }
         return {
           secret,

@@ -18,197 +18,198 @@ export class AccessService {
   ) {
     const cleanId = targetId.trim();
 
-    if (isGuest) {
-      // Buscar invitado por ID o por Cédula
-      const guest = await this.prisma.invitado.findFirst({
-        where: {
-          OR: [
-            { id: cleanId },
-            { cedula: { equals: cleanId, mode: 'insensitive' } },
-          ],
-        },
-      });
-
-      if (!guest) {
-        throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado`);
-      }
-
-      // Regla 1: Control de Bloqueo persistido en base de datos
-      if (guest.bloqueado && tipo === 'ENTRADA') {
-        await this.auditoriaService.registrar({
-          usuarioId: registradoPorId,
-          accion: 'ACCESO_DENEGADO_BLOQUEO',
-          entidad: 'Invitado',
-          entidadId: guest.id,
-          detalles: { cedula: guest.cedula, motivo: guest.motivoBloqueo },
-        });
-        throw new ForbiddenException(
-          `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
-        );
-      }
-
-      // Regla 2: Anti-Passback para Visitantes
-      const lastMove = await this.prisma.historial.findFirst({
-        where: { invitadoId: guest.id },
-        orderBy: { timestamp: 'desc' },
-      });
-
-      if (lastMove) {
-        if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
-          await this.auditoriaService.registrar({
-            usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-            entidad: 'Invitado',
-            entidadId: guest.id,
-            detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_ENTRADA' },
-          });
-          throw new BadRequestException(
-            `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
-          );
-        }
-        if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
-          await this.auditoriaService.registrar({
-            usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-            entidad: 'Invitado',
-            entidadId: guest.id,
-            detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_SALIDA' },
-          });
-          throw new BadRequestException(
-            `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
-          );
-        }
-      } else if (tipo === 'SALIDA') {
-        throw new BadRequestException(
-          `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
-        );
-      }
-
-
-      return this.prisma.historial.create({
-        data: {
-          invitadoId: guest.id,
-          tipo,
-          observacion: observacion || null,
-          registradoPorId: registradoPorId || null,
-        },
-        include: {
-          registradoPor: {
-            select: {
-              id: true,
-              nombre: true,
-              apellido: true,
-              rol: true,
-            },
+    // Atomicidad: Ejecutar verificación de Anti-Passback y creación dentro de una transacción para evitar condiciones de carrera
+    return this.prisma.$transaction(async (tx) => {
+      if (isGuest) {
+        // Buscar invitado por ID o por Cédula
+        const guest = await tx.invitado.findFirst({
+          where: {
+            OR: [
+              { id: cleanId },
+              { cedula: { equals: cleanId, mode: 'insensitive' } },
+            ],
           },
-          invitado: {
-            include: {
-              empleado: {
-                select: {
-                  nombre: true,
-                  apellido: true,
-                  email: true,
+        });
+
+        if (!guest) {
+          throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado`);
+        }
+
+        // Regla 1: Control de Bloqueo persistido en base de datos
+        if (guest.bloqueado && tipo === 'ENTRADA') {
+          await this.auditoriaService.registrar({
+            usuarioId: registradoPorId,
+            accion: 'ACCESO_DENEGADO_BLOQUEO',
+            entidad: 'Invitado',
+            entidadId: guest.id,
+            detalles: { cedula: guest.cedula, motivo: guest.motivoBloqueo },
+          });
+          throw new ForbiddenException(
+            `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
+          );
+        }
+
+        // Regla 2: Anti-Passback atómico para Visitantes
+        const lastMove = await tx.historial.findFirst({
+          where: { invitadoId: guest.id },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        if (lastMove) {
+          if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+            await this.auditoriaService.registrar({
+              usuarioId: registradoPorId,
+              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+              entidad: 'Invitado',
+              entidadId: guest.id,
+              detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+            });
+            throw new BadRequestException(
+              `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+            );
+          }
+          if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+            await this.auditoriaService.registrar({
+              usuarioId: registradoPorId,
+              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+              entidad: 'Invitado',
+              entidadId: guest.id,
+              detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_SALIDA' },
+            });
+            throw new BadRequestException(
+              `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
+            );
+          }
+        } else if (tipo === 'SALIDA') {
+          throw new BadRequestException(
+            `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
+          );
+        }
+
+        return tx.historial.create({
+          data: {
+            invitadoId: guest.id,
+            tipo,
+            observacion: observacion || null,
+            registradoPorId: registradoPorId || null,
+          },
+          include: {
+            registradoPor: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                rol: true,
+              },
+            },
+            invitado: {
+              include: {
+                empleado: {
+                  select: {
+                    nombre: true,
+                    apellido: true,
+                    email: true,
+                  },
                 },
               },
             },
           },
-        },
-      });
-    } else {
-      // Buscar usuario/empleado por ID o por Cédula
-      const user = await this.prisma.usuario.findFirst({
-        where: {
-          OR: [
-            { id: cleanId },
-            { cedula: { equals: cleanId, mode: 'insensitive' } },
-          ],
-        },
-      });
-
-      if (!user) {
-        throw new NotFoundException(`Usuario/Empleado con identificación '${cleanId}' no encontrado`);
-      }
-
-      // Regla 1: Control de Bloqueo persistido en base de datos
-      if (user.bloqueado && tipo === 'ENTRADA') {
-        await this.auditoriaService.registrar({
-          usuarioId: registradoPorId,
-          accion: 'ACCESO_DENEGADO_BLOQUEO',
-          entidad: 'Usuario',
-          entidadId: user.id,
-          detalles: { cedula: user.cedula, motivo: user.motivoBloqueo },
         });
-        throw new ForbiddenException(
-          `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
-        );
-      }
+      } else {
+        // Buscar usuario/empleado por ID o por Cédula
+        const user = await tx.usuario.findFirst({
+          where: {
+            OR: [
+              { id: cleanId },
+              { cedula: { equals: cleanId, mode: 'insensitive' } },
+            ],
+          },
+        });
 
-      // Regla 2: Anti-Passback para Personal Interno
-      const lastMove = await this.prisma.historial.findFirst({
-        where: { usuarioId: user.id },
-        orderBy: { timestamp: 'desc' },
-      });
+        if (!user) {
+          throw new NotFoundException(`Usuario/Empleado con identificación '${cleanId}' no encontrado`);
+        }
 
-      if (lastMove) {
-        if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+        // Regla 1: Control de Bloqueo persistido en base de datos
+        if (user.bloqueado && tipo === 'ENTRADA') {
           await this.auditoriaService.registrar({
             usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+            accion: 'ACCESO_DENEGADO_BLOQUEO',
             entidad: 'Usuario',
             entidadId: user.id,
-            detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+            detalles: { cedula: user.cedula, motivo: user.motivoBloqueo },
           });
-          throw new BadRequestException(
-            `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+          throw new ForbiddenException(
+            `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
           );
         }
-        if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
-          await this.auditoriaService.registrar({
-            usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-            entidad: 'Usuario',
-            entidadId: user.id,
-            detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_SALIDA' },
-          });
+
+        // Regla 2: Anti-Passback atómico para Personal Interno
+        const lastMove = await tx.historial.findFirst({
+          where: { usuarioId: user.id },
+          orderBy: { timestamp: 'desc' },
+        });
+
+        if (lastMove) {
+          if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+            await this.auditoriaService.registrar({
+              usuarioId: registradoPorId,
+              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+              entidad: 'Usuario',
+              entidadId: user.id,
+              detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+            });
+            throw new BadRequestException(
+              `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+            );
+          }
+          if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+            await this.auditoriaService.registrar({
+              usuarioId: registradoPorId,
+              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+              entidad: 'Usuario',
+              entidadId: user.id,
+              detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_SALIDA' },
+            });
+            throw new BadRequestException(
+              `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
+            );
+          }
+        } else if (tipo === 'SALIDA') {
           throw new BadRequestException(
-            `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
+            `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
           );
         }
-      } else if (tipo === 'SALIDA') {
-        throw new BadRequestException(
-          `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
-        );
+
+        return tx.historial.create({
+          data: {
+            usuarioId: user.id,
+            tipo,
+            observacion: observacion || null,
+            registradoPorId: registradoPorId || null,
+          },
+          include: {
+            registradoPor: {
+              select: {
+                id: true,
+                nombre: true,
+                apellido: true,
+                rol: true,
+              },
+            },
+            usuario: {
+              select: {
+                id: true,
+                cedula: true,
+                nombre: true,
+                apellido: true,
+                rol: true,
+              },
+            },
+          },
+        });
       }
-
-
-      return this.prisma.historial.create({
-        data: {
-          usuarioId: user.id,
-          tipo,
-          observacion: observacion || null,
-          registradoPorId: registradoPorId || null,
-        },
-        include: {
-          registradoPor: {
-            select: {
-              id: true,
-              nombre: true,
-              apellido: true,
-              rol: true,
-            },
-          },
-          usuario: {
-            select: {
-              id: true,
-              cedula: true,
-              nombre: true,
-              apellido: true,
-              rol: true,
-            },
-          },
-        },
-      });
-    }
+    });
   }
 
   async lookupPersona(identificacion: string) {

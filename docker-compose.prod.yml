@@ -6,14 +6,14 @@ services:
     container_name: cai_postgres_prod
     restart: unless-stopped
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgrespassword}
-      POSTGRES_DB: ${POSTGRES_DB:-cai_db}
+      POSTGRES_USER: ${POSTGRES_USER:?Variable POSTGRES_USER es requerida en .env}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Variable POSTGRES_PASSWORD es requerida en .env}
+      POSTGRES_DB: ${POSTGRES_DB:?Variable POSTGRES_DB es requerida en .env}
     # En producción el puerto NO se expone a internet, solo a la red interna docker
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-cai_db}"]
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -28,10 +28,10 @@ services:
       postgres:
         condition: service_healthy
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgrespassword}@postgres:5432/${POSTGRES_DB:-cai_db}?schema=public"
+      DATABASE_URL: "postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public"
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:-cai_jwt_secret_key_porware_migration_2026}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
+      JWT_SECRET: ${JWT_SECRET:?Variable JWT_SECRET es requerida en .env para produccion}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-8h}
     volumes:
       - ./prisma/data:/usr/src/app/prisma/data
     healthcheck:

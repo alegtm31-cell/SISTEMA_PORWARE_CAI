@@ -13,9 +13,9 @@ export interface JwtPayload {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaService) {
-    const secret = process.env.JWT_SECRET || 'cai_jwt_secret_key_porware_migration_2026';
-    if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
-      throw new Error('FATAL: La variable de entorno JWT_SECRET es obligatoria para iniciar el servidor.');
+    const secret = process.env.JWT_SECRET;
+    if (!secret) {
+      throw new Error('FATAL: La variable de entorno JWT_SECRET es estrictamente obligatoria para arrancar la API.');
     }
 
     super({
@@ -35,12 +35,18 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         apellido: true,
         email: true,
         rol: true,
+        bloqueado: true,
+        motivoBloqueo: true,
         createdAt: true,
       },
     });
 
     if (!user) {
       throw new UnauthorizedException('Usuario no encontrado o sesión no válida');
+    }
+
+    if (user.bloqueado) {
+      throw new UnauthorizedException(`Acceso restringido: Cuenta de usuario bloqueada por administración (${user.motivoBloqueo || 'Consulte a RRHH'}).`);
     }
 
     return user;

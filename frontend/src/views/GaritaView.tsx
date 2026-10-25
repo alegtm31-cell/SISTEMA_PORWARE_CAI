@@ -9,7 +9,6 @@ import {
   AlertCircle,
   Search,
   Camera,
-  Zap,
   ShieldBan,
   Flame,
   Printer,
@@ -58,14 +57,6 @@ export const GaritaView: React.FC = () => {
   const barcodeBuffer = useRef<{ text: string; lastTime: number }>({ text: '', lastTime: 0 });
 
   const quickTags = ['Vehículo', 'Laptop / Equipos', 'Reunión', 'Almuerzo', 'Mantenimiento'];
-
-  const quickCIs = [
-    { label: 'Admin (Carlos)', ci: 'V-12345678', blocked: false },
-    { label: 'Empleado (María)', ci: 'V-23456789', blocked: false },
-    { label: 'Guardia (José)', ci: 'V-34567890', blocked: false },
-    { label: 'Visitante (Mariana)', ci: 'V-19876543', blocked: false },
-    { label: '🚨 Vetado (Pedro)', ci: 'V-99887766', blocked: true },
-  ];
 
   // Cargar últimos movimientos
   const loadRecent = async () => {
@@ -221,12 +212,6 @@ export const GaritaView: React.FC = () => {
     } finally {
       setLoading(false);
     }
-  };
-
-  const handleSimulateLaser = (code: string) => {
-    playChime('laser');
-    setQuery(code);
-    handleSearch(code);
   };
 
   const handleRegister = async (tipo: 'ENTRADA' | 'SALIDA') => {
@@ -416,32 +401,6 @@ export const GaritaView: React.FC = () => {
               </button>
             </div>
           </form>
-
-          {/* SIMULADOR DE PISTOLA LÁSER: Disparo horizontal compacto */}
-          <div style={{ marginTop: '10px', paddingTop: '8px', borderTop: '1px solid var(--border-subtle)', display: 'flex', alignItems: 'center', gap: '8px', overflowX: 'auto', paddingBottom: '2px', scrollbarWidth: 'none' }}>
-            <span style={{ fontSize: '0.72rem', color: 'var(--cyan)', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '4px', whiteSpace: 'nowrap', flexShrink: 0 }}>
-              <Zap size={13} /> TEST:
-            </span>
-            {quickCIs.map((item) => (
-              <button
-                key={item.ci}
-                type="button"
-                className="btn-ghost"
-                style={{
-                  padding: '4px 10px',
-                  fontSize: '0.74rem',
-                  fontFamily: 'var(--font-mono)',
-                  whiteSpace: 'nowrap',
-                  flexShrink: 0,
-                  borderColor: item.blocked ? 'rgba(244, 63, 94, 0.4)' : undefined,
-                  color: item.blocked ? '#fb7185' : undefined,
-                }}
-                onClick={() => handleSimulateLaser(item.ci)}
-              >
-                {item.label}
-              </button>
-            ))}
-          </div>
         </div>
 
         {/* Mensaje de Feedback */}
