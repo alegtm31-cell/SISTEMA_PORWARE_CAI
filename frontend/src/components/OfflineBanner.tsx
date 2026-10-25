@@ -3,9 +3,11 @@ import { WifiOff, RefreshCw, X } from 'lucide-react';
 import { api } from '../services/api';
 
 export const OfflineBanner: React.FC = () => {
-  const [isOffline, setIsOffline] = useState(!navigator.onLine);
+  const [isOffline, setIsOffline] = useState(false);
   const [retrying, setRetrying] = useState(false);
-  const [dismissed, setDismissed] = useState(false);
+  const [dismissed, setDismissed] = useState(() => {
+    return localStorage.getItem('cai_offline_banner_hidden') === 'true';
+  });
 
   const verifyConnection = async () => {
     if (!navigator.onLine) {
@@ -18,21 +20,32 @@ export const OfflineBanner: React.FC = () => {
 
   const handleRetry = async () => {
     setRetrying(true);
+    localStorage.removeItem('cai_offline_banner_hidden');
+    setDismissed(false);
     await verifyConnection();
     setTimeout(() => setRetrying(false), 600);
   };
 
+  const handleDismiss = () => {
+    setDismissed(true);
+    localStorage.setItem('cai_offline_banner_hidden', 'true');
+  };
+
   useEffect(() => {
+    // Verificación inicial diferida para no parpadear al cargar
+    const timeout = setTimeout(verifyConnection, 1500);
+
     const onOnline = () => verifyConnection();
     const onOffline = () => setIsOffline(true);
 
     window.addEventListener('online', onOnline);
     window.addEventListener('offline', onOffline);
 
-    // Verificación periódica cada 20 segundos
-    const interval = setInterval(verifyConnection, 20000);
+    // Verificación periódica cada 30 segundos
+    const interval = setInterval(verifyConnection, 30000);
 
     return () => {
+      clearTimeout(timeout);
       window.removeEventListener('online', onOnline);
       window.removeEventListener('offline', onOffline);
       clearInterval(interval);
@@ -42,30 +55,30 @@ export const OfflineBanner: React.FC = () => {
   if (!isOffline || dismissed) return null;
 
   return (
-    <div
-      role="alert"
+    <aside
+      role="status"
+      aria-live="polite"
       className="animate-fade-in"
       style={{
-        background: 'linear-gradient(90deg, #991b1b 0%, #b91c1c 100%)',
+        background: 'linear-gradient(90deg, #7f1d1d 0%, #991b1b 100%)',
         color: '#ffffff',
-        padding: '8px 16px',
+        padding: '6px 14px',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
         flexWrap: 'wrap',
-        gap: '10px',
-        fontSize: '0.82rem',
+        gap: '8px',
+        fontSize: '0.78rem',
         fontWeight: 600,
-        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.3)',
-        zIndex: 9999,
-        position: 'sticky',
-        top: 0,
+        boxShadow: '0 2px 10px rgba(0, 0, 0, 0.25)',
+        zIndex: 40,
+        borderBottom: '1px solid rgba(239, 68, 68, 0.4)',
       }}
     >
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-        <WifiOff size={18} style={{ flexShrink: 0 }} />
+        <WifiOff size={16} style={{ flexShrink: 0, color: '#fca5a5' }} />
         <span>
-          <strong>Modo Sin Conexión:</strong> Sin enlace con el servidor de garita. Los pases digitales firmados y la lectura local de códigos continúan operando.
+          <strong>Modo Local Autónomo:</strong> Servidor PostgreSQL en espera. Pases QR, escaneo y operaciones locales disponibles.
         </span>
       </div>
 
@@ -75,41 +88,41 @@ export const OfflineBanner: React.FC = () => {
           onClick={handleRetry}
           disabled={retrying}
           style={{
-            background: 'rgba(255, 255, 255, 0.2)',
-            border: '1px solid rgba(255, 255, 255, 0.4)',
+            background: 'rgba(255, 255, 255, 0.15)',
+            border: '1px solid rgba(255, 255, 255, 0.3)',
             color: '#ffffff',
             borderRadius: '6px',
-            padding: '4px 12px',
+            padding: '3px 10px',
             cursor: retrying ? 'wait' : 'pointer',
             display: 'flex',
             alignItems: 'center',
-            gap: '6px',
-            fontSize: '0.78rem',
+            gap: '5px',
+            fontSize: '0.75rem',
             fontWeight: 700,
           }}
         >
-          <RefreshCw size={13} className={retrying ? 'spin' : ''} />
+          <RefreshCw size={12} className={retrying ? 'spin' : ''} />
           <span>{retrying ? 'Verificando...' : 'Reconectar'}</span>
         </button>
 
         <button
           type="button"
-          onClick={() => setDismissed(true)}
+          onClick={handleDismiss}
           style={{
             background: 'transparent',
             border: 'none',
             color: 'rgba(255, 255, 255, 0.8)',
             cursor: 'pointer',
-            padding: '4px',
+            padding: '3px',
             display: 'flex',
             alignItems: 'center',
             borderRadius: '4px',
           }}
-          title="Ocultar aviso"
+          title="Ocultar este aviso"
         >
-          <X size={16} />
+          <X size={15} />
         </button>
       </div>
-    </div>
+    </aside>
   );
 };
