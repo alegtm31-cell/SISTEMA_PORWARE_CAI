@@ -10,16 +10,15 @@ import {
 
 import type { Role } from '../types';
 
-export type ActiveTab = 'garita' | 'dashboard' | 'users' | 'invitados' | 'historial' | 'noticias';
+export type ActiveTab = 'garita' | 'dashboard' | 'users' | 'invitados' | 'historial' | 'noticias' | 'settings';
 
 interface SidebarProps {
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   userRole?: Role;
-  onOpenSettings?: () => void;
 }
 
-export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, userRole = 'ADMINISTRADOR', onOpenSettings }) => {
+export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, userRole = 'ADMINISTRADOR' }) => {
   const menuItems: { id: ActiveTab; label: string; icon: React.ReactNode; roles: Role[] }[] = [
     {
       id: 'garita',
@@ -134,31 +133,31 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, userRo
       </div>
 
       <div>
-        {onOpenSettings && (
-          <button
-            type="button"
-            onClick={onOpenSettings}
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '12px',
-              padding: '10px 14px',
-              borderRadius: 'var(--radius-sm)',
-              border: '1px solid var(--border-subtle)',
-              background: 'var(--bg-surface)',
-              color: 'var(--text-main)',
-              fontSize: '0.84rem',
-              fontWeight: 600,
-              cursor: 'pointer',
-              width: '100%',
-              marginBottom: '10px',
-              transition: 'all 0.15s ease',
-            }}
-          >
-            <Settings size={18} color="var(--cyan)" />
-            <span>Ajustes & Tema</span>
-          </button>
-        )}
+        <button
+          type="button"
+          onClick={() => onSelectTab('settings')}
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            padding: '10px 14px',
+            borderRadius: 'var(--radius-sm)',
+            border: activeTab === 'settings' ? '1px solid var(--border-glow)' : '1px solid var(--border-subtle)',
+            background: activeTab === 'settings'
+              ? 'linear-gradient(90deg, rgba(14, 165, 233, 0.14) 0%, rgba(37, 99, 235, 0.06) 100%)'
+              : 'var(--bg-surface)',
+            color: activeTab === 'settings' ? 'var(--cyan)' : 'var(--text-main)',
+            fontSize: '0.84rem',
+            fontWeight: activeTab === 'settings' ? 700 : 600,
+            cursor: 'pointer',
+            width: '100%',
+            marginBottom: '10px',
+            transition: 'all 0.15s ease',
+          }}
+        >
+          <Settings size={18} color={activeTab === 'settings' ? 'var(--cyan)' : 'var(--text-dim)'} />
+          <span>Ajustes & Configuración</span>
+        </button>
         <div style={{ padding: '0 12px', fontSize: '0.72rem', color: 'var(--text-dim)' }}>
           Sistema CAI • Mobile v1.0.2
         </div>

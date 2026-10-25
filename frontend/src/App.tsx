@@ -6,9 +6,9 @@ import { UsersView } from './views/UsersView';
 import { InvitadosView } from './views/InvitadosView';
 import { HistorialView } from './views/HistorialView';
 import { NoticiasView } from './views/NoticiasView';
+import { SettingsView } from './views/SettingsView';
+import { LoginView } from './views/LoginView';
 import { MobileNav } from './components/MobileNav';
-import { LoginModal } from './views/LoginModal';
-import { SettingsModal } from './components/SettingsModal';
 import { CarteleraWelcomeModal } from './components/CarteleraWelcomeModal';
 import { OfflineBanner } from './components/OfflineBanner';
 import { api } from './services/api';
@@ -19,23 +19,12 @@ export const App: React.FC = () => {
   const { themeMode, resolvedTheme, setTheme } = useTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab>('garita');
   const [user, setUser] = useState<Usuario | null>(null);
-  const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isCarteleraWelcomeOpen, setIsCarteleraWelcomeOpen] = useState(false);
   const [noticias, setNoticias] = useState<Noticia[]>([]);
+  const [isCheckingSession, setIsCheckingSession] = useState(true);
 
   useEffect(() => {
-    // Cargar noticias y abrir Cartelera informativa al ingresar
-    api.getNoticias().then((items) => {
-      setNoticias(items);
-      const hideDate = localStorage.getItem('cai_hide_cartelera_date');
-      const today = new Date().toISOString().slice(0, 10);
-      if (hideDate !== today) {
-        setIsCarteleraWelcomeOpen(true);
-      }
-    });
-
-    // Verificar si hay usuario en sesión
+    // 1. Verificar si hay usuario con sesión activa en el cliente
     const savedUser = api.getCurrentUser();
     if (savedUser) {
       setUser(savedUser);
@@ -44,17 +33,25 @@ export const App: React.FC = () => {
       } else {
         setActiveTab('invitados');
       }
+
+      // Cargar cartelera informativa de bienvenida para usuarios autenticados
+      api.getNoticias().then((items) => {
+        setNoticias(items);
+        const hideDate = localStorage.getItem('cai_hide_cartelera_date');
+        const today = new Date().toISOString().slice(0, 10);
+        if (hideDate !== today) {
+          setIsCarteleraWelcomeOpen(true);
+        }
+      });
     } else {
-      // Fase 0: Honestidad - Si no hay sesión válida activa, exigir autenticación real
       setUser(null);
-      setIsLoginModalOpen(true);
     }
+    setIsCheckingSession(false);
   }, []);
 
   const handleLogout = () => {
     api.logout();
     setUser(null);
-    setIsLoginModalOpen(true);
   };
 
   const handleLoginSuccess = (newUser: Usuario) => {
@@ -64,10 +61,41 @@ export const App: React.FC = () => {
     } else {
       setActiveTab('garita');
     }
-    // Abrir cartelera al iniciar sesión
-    setIsCarteleraWelcomeOpen(true);
+    // Cargar noticias y mostrar bienvenida
+    api.getNoticias().then((items) => {
+      setNoticias(items);
+      setIsCarteleraWelcomeOpen(true);
+    });
   };
 
+  // Pantalla de carga mientras se verifica el token JWT inicial
+  if (isCheckingSession) {
+    return (
+      <div
+        style={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          minHeight: '100vh',
+          background: 'var(--bg-dark)',
+          color: 'var(--text-muted)',
+          fontFamily: 'var(--font-sans)',
+        }}
+      >
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span className="live-pulse" style={{ width: '10px', height: '10px' }} />
+          <span>Iniciando sistema CAI...</span>
+        </div>
+      </div>
+    );
+  }
+
+  // SI NO HAY SESIÓN ACTIVA: Mostrar pantalla completa de inicio de sesión (no modal emergente)
+  if (!user) {
+    return <LoginView onSuccess={handleLoginSuccess} />;
+  }
+
+  // SESIÓN ACTIVA: Renderizar panel de control con navegación por secciones
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', background: 'var(--bg-dark)' }}>
       {/* Alerta de conexión / Banner Offline */}
@@ -77,8 +105,8 @@ export const App: React.FC = () => {
       <Navbar
         user={user}
         onLogout={handleLogout}
-        onOpenLogin={() => setIsLoginModalOpen(true)}
-        onOpenSettings={() => setIsSettingsOpen(true)}
+        onOpenLogin={() => setUser(null)}
+        onOpenSettings={() => setActiveTab('settings')}
       />
 
       {/* Cuerpo Principal con Sidebar (Desktop) y Área de Trabajo */}
@@ -87,7 +115,6 @@ export const App: React.FC = () => {
           activeTab={activeTab}
           onSelectTab={setActiveTab}
           userRole={user?.rol || 'ADMINISTRADOR'}
-          onOpenSettings={() => setIsSettingsOpen(true)}
         />
 
         <main className="app-main-content">
@@ -96,6 +123,16 @@ export const App: React.FC = () => {
           {activeTab === 'invitados' && <InvitadosView currentUser={user} />}
           {activeTab === 'historial' && <HistorialView />}
           {activeTab === 'noticias' && <NoticiasView userRole={user?.rol} />}
+          {activeTab === 'settings' && (
+            <SettingsView
+              themeMode={themeMode}
+              resolvedTheme={resolvedTheme}
+              onSetTheme={setTheme}
+              user={user}
+              onLogout={handleLogout}
+              onOpenCartelera={() => setActiveTab('noticias')}
+            />
+          )}
         </main>
       </div>
 
@@ -104,29 +141,9 @@ export const App: React.FC = () => {
         activeTab={activeTab}
         onSelectTab={setActiveTab}
         userRole={user?.rol || 'ADMINISTRADOR'}
-        onOpenSettings={() => setIsSettingsOpen(true)}
       />
 
-      {/* Modal de Inicio de Sesión */}
-      <LoginModal
-        isOpen={isLoginModalOpen}
-        onClose={() => setIsLoginModalOpen(false)}
-        onSuccess={handleLoginSuccess}
-      />
-
-      {/* Modal de Ajustes y Preferencias (Tema, IP Servidor, Cuenta) */}
-      <SettingsModal
-        isOpen={isSettingsOpen}
-        onClose={() => setIsSettingsOpen(false)}
-        themeMode={themeMode}
-        resolvedTheme={resolvedTheme}
-        onSetTheme={setTheme}
-        user={user}
-        onLogout={handleLogout}
-        onOpenCartelera={() => setActiveTab('noticias')}
-      />
-
-      {/* Modal de Cartelera Informativa de Bienvenida */}
+      {/* Modal de Cartelera Informativa de Bienvenida (informativo, descartable) */}
       <CarteleraWelcomeModal
         isOpen={isCarteleraWelcomeOpen}
         onClose={() => setIsCarteleraWelcomeOpen(false)}

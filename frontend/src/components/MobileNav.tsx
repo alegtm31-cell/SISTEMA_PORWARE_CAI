@@ -15,14 +15,12 @@ interface MobileNavProps {
   activeTab: ActiveTab;
   onSelectTab: (tab: ActiveTab) => void;
   userRole?: Role;
-  onOpenSettings: () => void;
 }
 
 export const MobileNav: React.FC<MobileNavProps> = ({
   activeTab,
   onSelectTab,
   userRole = 'ADMINISTRADOR',
-  onOpenSettings,
 }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
 
@@ -171,6 +169,24 @@ export const MobileNav: React.FC<MobileNavProps> = ({
                 <Newspaper size={22} color="var(--blue)" />
                 <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Cartelera</span>
               </button>
+
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => handleSelect('settings')}
+                style={{
+                  padding: '14px',
+                  borderRadius: '12px',
+                  flexDirection: 'column',
+                  alignItems: 'center',
+                  gap: '8px',
+                  background: activeTab === 'settings' ? 'var(--border-subtle)' : 'var(--bg-card)',
+                  color: activeTab === 'settings' ? 'var(--cyan)' : 'var(--text-main)',
+                }}
+              >
+                <Settings size={22} color="var(--cyan)" />
+                <span style={{ fontSize: '0.82rem', fontWeight: 600 }}>Ajustes</span>
+              </button>
             </div>
           </div>
         </div>
@@ -265,7 +281,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
         {/* Ajustes y Preferencias */}
         <button
           type="button"
-          onClick={onOpenSettings}
+          onClick={() => onSelectTab('settings')}
           style={{
             display: 'flex',
             flexDirection: 'column',
@@ -273,9 +289,9 @@ export const MobileNav: React.FC<MobileNavProps> = ({
             gap: '4px',
             background: 'transparent',
             border: 'none',
-            color: 'var(--text-muted)',
+            color: activeTab === 'settings' ? 'var(--cyan)' : 'var(--text-muted)',
             fontSize: '0.72rem',
-            fontWeight: 500,
+            fontWeight: activeTab === 'settings' ? 700 : 500,
             cursor: 'pointer',
             padding: '4px 8px',
           }}
