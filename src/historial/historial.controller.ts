@@ -36,6 +36,17 @@ export class HistorialController {
     return this.historialService.getStats();
   }
 
+  @Get('dentro')
+  @Roles('ADMINISTRADOR', 'SEGURIDAD')
+  @ApiOperation({
+    summary: 'Censo en tiempo real de personas dentro de la sede (Roll Call / Evacuación)',
+    description: 'Devuelve la lista real de todas las personas (empleados y visitantes) cuyo último movimiento registrado fue ENTRADA.',
+  })
+  @ApiResponse({ status: 200, description: 'Listado oficial de personas dentro de las instalaciones.' })
+  async getPersonasDentro() {
+    return this.historialService.getPersonasDentro();
+  }
+
   @Get('persona/:idOrCedula')
   @Roles('ADMINISTRADOR', 'SEGURIDAD')
   @ApiOperation({

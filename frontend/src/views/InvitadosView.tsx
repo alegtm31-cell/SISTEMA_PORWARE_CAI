@@ -73,8 +73,8 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => 
     };
 
     const res = await api.createInvitado(payload);
-    if (res.data) {
-      setActivePass(res.data);
+    if (res) {
+      setActivePass(res);
       setMobileTab('pases'); // en móvil pasar a ver el pase generado
     }
 

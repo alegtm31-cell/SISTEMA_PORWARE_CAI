@@ -1,4 +1,4 @@
-import { Controller, Post, Body, UseGuards } from '@nestjs/common';
+import { Controller, Post, Get, Param, Body, UseGuards } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { AccessService } from './access.service';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
@@ -12,6 +12,18 @@ import { RegisterAccessDto } from './dto/register-access.dto';
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class AccessController {
   constructor(private readonly accessService: AccessService) {}
+
+  @Get('lookup/:cedula')
+  @Roles('SEGURIDAD', 'ADMINISTRADOR')
+  @ApiOperation({
+    summary: 'Consultar identidad y estado en tiempo real para Garita',
+    description: 'Verifica si la cédula o código escaneado pertenece a un empleado o visitante registrado en la base de datos, obteniendo su estado actual de ingreso/salida.',
+  })
+  @ApiResponse({ status: 200, description: 'Datos de la persona e información de acceso.' })
+  @ApiResponse({ status: 404, description: 'Cédula no encontrada en la base de datos.' })
+  async lookupPersona(@Param('cedula') cedula: string) {
+    return await this.accessService.lookupPersona(cedula);
+  }
 
   @Post('check-in')
   @Roles('SEGURIDAD', 'ADMINISTRADOR')

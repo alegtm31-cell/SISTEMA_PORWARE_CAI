@@ -131,8 +131,61 @@ export class HistorialService {
       salidasHoy,
       totalHoy,
       dentroEstimado: Math.max(0, entradasHoy - salidasHoy),
+      personasDentroAproximado: Math.max(0, entradasHoy - salidasHoy),
       ultimosMovimientos,
     };
+  }
+
+  async getPersonasDentro() {
+    const insideUsers: any[] = await this.prisma.$queryRaw`
+      SELECT DISTINCT ON (h."usuarioId")
+        h.id as "historialId",
+        h.tipo,
+        h.timestamp as "horaIngreso",
+        u.id,
+        u.nombre,
+        u.apellido,
+        u.cedula,
+        u.rol,
+        'PERSONAL' as "categoria",
+        'Personal Interno' as "empresa"
+      FROM "Historial" h
+      JOIN "Usuario" u ON h."usuarioId" = u.id
+      WHERE h."usuarioId" IS NOT NULL
+      ORDER BY h."usuarioId", h.timestamp DESC;
+    `;
+
+    const insideGuests: any[] = await this.prisma.$queryRaw`
+      SELECT DISTINCT ON (h."invitadoId")
+        h.id as "historialId",
+        h.tipo,
+        h.timestamp as "horaIngreso",
+        g.id,
+        g.nombre,
+        g.apellido,
+        g.cedula,
+        'VISITANTE' as rol,
+        'VISITANTE' as "categoria",
+        COALESCE(g.empresa, 'Particular') as "empresa"
+      FROM "Historial" h
+      JOIN "Invitado" g ON h."invitadoId" = g.id
+      WHERE h."invitadoId" IS NOT NULL
+      ORDER BY h."invitadoId", h.timestamp DESC;
+    `;
+
+    const active = [
+      ...insideUsers.filter((r) => r.tipo === 'ENTRADA'),
+      ...insideGuests.filter((r) => r.tipo === 'ENTRADA'),
+    ];
+
+    return active.map((item) => ({
+      id: item.id,
+      nombre: `${item.nombre} ${item.apellido}`,
+      cedula: item.cedula,
+      tipo: item.rol === 'ADMINISTRADOR' ? 'PERSONAL (ADMIN)' : item.rol === 'SEGURIDAD' ? 'PERSONAL (SEGURIDAD)' : item.categoria,
+      empresa: item.empresa,
+      horaIngreso: item.horaIngreso,
+    }));
   }
 
   async getPersonaHistorial(idOrCedula: string) {

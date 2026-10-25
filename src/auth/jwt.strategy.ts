@@ -13,10 +13,15 @@ export interface JwtPayload {
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private readonly prisma: PrismaService) {
+    const secret = process.env.JWT_SECRET || 'cai_jwt_secret_key_porware_migration_2026';
+    if (!process.env.JWT_SECRET && process.env.NODE_ENV === 'production') {
+      throw new Error('FATAL: La variable de entorno JWT_SECRET es obligatoria para iniciar el servidor.');
+    }
+
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
       ignoreExpiration: false,
-      secretOrKey: process.env.JWT_SECRET || 'cai_jwt_secret_key_porware_migration_2026',
+      secretOrKey: secret,
     });
   }
 

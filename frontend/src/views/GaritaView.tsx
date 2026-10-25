@@ -61,8 +61,14 @@ export const GaritaView: React.FC = () => {
 
   // Cargar últimos movimientos
   const loadRecent = async () => {
-    const stats = await api.getStats();
-    setRecentMoves(stats.ultimosMovimientos);
+    try {
+      const stats = await api.getStats();
+      if (stats && Array.isArray(stats.ultimosMovimientos)) {
+        setRecentMoves(stats.ultimosMovimientos);
+      }
+    } catch {
+      // Manejar silenciosamente si aún no hay sesión o si está conectando
+    }
   };
 
   useEffect(() => {
@@ -156,6 +162,12 @@ export const GaritaView: React.FC = () => {
           message: `Identificación '${term}' no encontrada. Verifica la cédula o pre-regístrala en Visitas.`,
         });
       }
+    } catch (err: any) {
+      setPersona(null);
+      setFeedback({
+        type: 'error',
+        message: err?.message || 'Error al consultar persona en el servidor.',
+      });
     } finally {
       setLoading(false);
     }
@@ -190,10 +202,10 @@ export const GaritaView: React.FC = () => {
       });
       setObservacion('');
       await loadRecent();
-    } catch {
+    } catch (err: any) {
       setFeedback({
         type: 'error',
-        message: 'Ocurrió un error al registrar el acceso en el servidor.',
+        message: err?.message || 'Ocurrió un error al registrar el acceso en el servidor.',
       });
     } finally {
       setLoading(false);
@@ -201,9 +213,13 @@ export const GaritaView: React.FC = () => {
   };
 
   const handleOpenRollCall = async () => {
-    const list = await api.getEvacuationList();
-    setEvacuationList(list);
-    setIsRollCallOpen(true);
+    try {
+      const list = await api.getEvacuationList();
+      setEvacuationList(list);
+      setIsRollCallOpen(true);
+    } catch (err: any) {
+      alert(err?.message || 'Error al obtener lista de personal dentro.');
+    }
   };
 
   const handleClearPersona = () => {

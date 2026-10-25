@@ -44,17 +44,9 @@ export const App: React.FC = () => {
         setActiveTab('invitados');
       }
     } else {
-      // Iniciar con usuario demo administrador por defecto
-      const defaultAdmin: Usuario = {
-        id: 'u-1',
-        cedula: 'V-12345678',
-        nombre: 'Carlos',
-        apellido: 'Rodríguez',
-        email: 'admin@cai.local',
-        rol: 'ADMINISTRADOR',
-      };
-      setUser(defaultAdmin);
-      setActiveTab('garita');
+      // Fase 0: Honestidad - Si no hay sesión válida activa, exigir autenticación real
+      setUser(null);
+      setIsLoginModalOpen(true);
     }
   }, []);
 

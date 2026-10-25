@@ -30,8 +30,8 @@ export const LoginModal: React.FC<LoginModalProps> = ({ isOpen, onClose, onSucce
       } else {
         setError('Credenciales incorrectas');
       }
-    } catch {
-      setError('Error al comunicar con el servidor de autenticación');
+    } catch (err: any) {
+      setError(err?.message || 'Error al comunicar con el servidor de autenticación');
     } finally {
       setLoading(false);
     }
