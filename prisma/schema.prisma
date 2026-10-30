@@ -65,6 +65,7 @@ model Invitado {
   fotoUrl       String?
   bloqueado     Boolean     @default(false)
   motivoBloqueo String?
+  eliminado     Boolean     @default(false)
   empleadoId    String
   empleado      Usuario     @relation("EmpleadoInvitante", fields: [empleadoId], references: [id])
   createdAt     DateTime    @default(now())
@@ -74,20 +75,21 @@ model Invitado {
 }
 
 model Visita {
-  id          String       @id @default(uuid())
-  invitadoId  String
-  invitado    Invitado     @relation(fields: [invitadoId], references: [id], onDelete: Cascade)
-  empleadoId  String
-  empleado    Usuario      @relation("VisitasAutorizadas", fields: [empleadoId], references: [id], onDelete: Cascade)
-  fecha       DateTime     @default(now())
-  motivo      String?
-  placa       String?
-  estado      EstadoVisita @default(PENDIENTE)
-  observacion String?
-  createdAt   DateTime     @default(now())
-  updatedAt   DateTime     @updatedAt
+  id              String       @id @default(uuid())
+  invitadoId      String
+  invitado        Invitado     @relation(fields: [invitadoId], references: [id], onDelete: Cascade)
+  empleadoId      String
+  empleado        Usuario      @relation("VisitasAutorizadas", fields: [empleadoId], references: [id], onDelete: Cascade)
+  fecha           DateTime     @default(now())
+  fechaExpiracion DateTime?
+  motivo          String?
+  placa           String?
+  estado          EstadoVisita @default(AUTORIZADA)
+  observacion     String?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
 
-  historial   Historial[]
+  historial       Historial[]
 }
 
 model Historial {

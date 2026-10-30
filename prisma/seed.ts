@@ -3,7 +3,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 import * as crypto from 'crypto';
 import * as bcrypt from 'bcryptjs';
-import csv = require('csv-parser');
+// eslint-disable-next-line @typescript-eslint/no-var-requires
+const csv = require('csv-parser');
 
 const prisma = new PrismaClient();
 
@@ -61,7 +62,6 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
           let processed = 0;
 
           for (const row of rows) {
-            // Manejar variaciones comunes de nombres de columnas en bases de datos MySQL antiguas
             const cedula = (row.cedula || row.ci || row.rut || row.id || '').trim();
             if (!cedula) {
               console.warn(`⚠️ Saltando fila sin cédula/identificación:`, row);
@@ -73,7 +73,6 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
             const email = (row.email || row.correo || `${cedula}@cai.local`).trim().toLowerCase();
             const rol = normalizeRole(row.rol || row.role || row.tipo);
 
-            // Generación segura de contraseñas sin valores débiles predecibles
             let initialPassword = '';
             let registroCompletado = false;
             let debeCambiarClave = true;
@@ -96,12 +95,11 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
               // EMPLEADO: Se genera hash inaccesible temporal. Debe realizar auto-registro (/auth/complete-registro)
               initialPassword = crypto.randomBytes(32).toString('hex');
               registroCompletado = false;
-              debeCambiarClave = true;
+              debeCambiarClave = false;
             }
 
             const hashedPassword = await bcrypt.hash(initialPassword, 10);
 
-            // Upsert para idempotencia sin sobreescribir la contraseña si el usuario ya existe
             await prisma.usuario.upsert({
               where: { cedula },
               update: {
@@ -109,7 +107,6 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
                 apellido,
                 email,
                 rol,
-                // NOTA DE SEGURIDAD: No sobreescribir password ni flags para preservar estado real
               },
               create: {
                 cedula,
@@ -124,7 +121,7 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
             });
 
             processed++;
-            console.log(`✅ [${processed}/${rows.length}] Usuario migrado: ${cedula} - ${nombre} ${apellido} (${rol}, pre-registro: ${!registroCompletado})`);
+            console.log(`✅ [${processed}/${rows.length}] Usuario migrado: ${cedula} - ${nombre} ${apellido} (${rol})`);
           }
 
           resolve(processed);
@@ -132,112 +129,65 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
           reject(error);
         }
       })
-      .on('error', (err) => reject(err));
+      .on('error', (err: Error) => reject(err));
   });
 }
 
-async function main() {
-  console.log('🚀 Iniciando script de migración y siembra (Seed)...');
+async function ensureBootstrapAdmin() {
+  const adminCount = await prisma.usuario.count({
+    where: { rol: Role.ADMINISTRADOR },
+  });
 
-  // Posibles rutas donde puede estar el archivo CSV
-  const possiblePaths = [
-    path.join(__dirname, 'data', 'usuarios.csv'),
-    path.join(__dirname, 'usuarios.csv'),
-    path.join(process.cwd(), 'usuarios.csv'),
-  ];
-
-  let selectedPath = possiblePaths.find((p) => fs.existsSync(p));
-
-  if (!selectedPath) {
-    console.warn('⚠️ No se encontró un archivo usuarios.csv en las rutas predeterminadas.');
-    console.log('📌 Se esperaba en alguna de estas ubicaciones:');
-    possiblePaths.forEach((p) => console.log(`   - ${p}`));
-    console.log('\n💡 Creando un usuario administrador por defecto...');
-
-    const initialAdminPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
-    const defaultAdminPass = await bcrypt.hash(initialAdminPass, 10);
-    await prisma.usuario.upsert({
-      where: { cedula: 'V-00000000' },
-      update: {},
-      create: {
-        cedula: 'V-00000000',
-        nombre: 'Admin',
-        apellido: 'Sistema',
-        email: 'admin@cai.local',
-        password: defaultAdminPass,
-        rol: Role.ADMINISTRADOR,
-        registroCompletado: true,
-        debeCambiarClave: !process.env.INITIAL_ADMIN_PASSWORD,
-      },
-    });
-    console.log(`✅ Usuario Administrador inicial verificado: admin@cai.local`);
-    if (!process.env.INITIAL_ADMIN_PASSWORD) {
-      console.log(`🔑 Clave generada para Administrador: ${initialAdminPass}`);
-    }
+  if (adminCount > 0) {
+    console.log(`ℹ️ Ya existe al menos un usuario ADMINISTRADOR registrado (${adminCount}).`);
     return;
   }
 
-  const totalMigrated = await migrateUsersFromCsv(selectedPath);
-  console.log(`\n🎉 Migración de usuarios completada con éxito. Total: ${totalMigrated} usuarios.`);
+  const initialAdminPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
+  const defaultAdminPass = await bcrypt.hash(initialAdminPass, 10);
 
-  // 1. Sembrar noticias iniciales si la tabla está vacía
-  const noticiasCount = await prisma.noticia.count();
-  if (noticiasCount === 0) {
-    await prisma.noticia.createMany({
-      data: [
-        {
-          titulo: 'Mantenimiento preventivo en torniquetes y garita norte',
-          contenido:
-            'Se informa que el viernes a partir de las 18:00 se realizará calibración en las lectoras ópticas de acceso. Todos los accesos se redirigirán por garita principal.',
-        },
-        {
-          titulo: 'Protocolo de registro anticipado de visitantes',
-          contenido:
-            'Recordamos al personal que todas las visitas externas deben ser registradas previamente en el módulo de Visitas para agilizar el ingreso con el personal de seguridad.',
-        },
-      ],
-    });
-    console.log('✅ Noticias informativas creadas en base de datos PostgreSQL');
-  }
-
-  // 2. Sembrar invitado de prueba (Mariana Gómez) vinculado a María Fernández si no existe
-  const maria = await prisma.usuario.findUnique({ where: { cedula: 'V-23456789' } });
-  if (maria) {
-    await prisma.invitado.upsert({
-      where: { cedula: 'V-19876543' },
-      update: {},
-      create: {
-        cedula: 'V-19876543',
-        nombre: 'Mariana',
-        apellido: 'Gómez',
-        empresa: 'Servicios de Redes C.A.',
-        empleadoId: maria.id,
-      },
-    });
-    console.log('✅ Invitado de prueba (Mariana Gómez) verificado en PostgreSQL');
-  }
-
-  // 3. Sembrar empleado bloqueado/vetado de prueba para verificar reglas de seguridad
-  const blockedPass = await bcrypt.hash(crypto.randomBytes(32).toString('hex'), 10);
   await prisma.usuario.upsert({
-    where: { cedula: 'V-99887766' },
-    update: {
-      bloqueado: true,
-      motivoBloqueo: 'Desincorporado por RRHH con prohibición de ingreso a plantas e instalaciones',
-    },
+    where: { cedula: 'V-00000000' },
+    update: {},
     create: {
-      cedula: 'V-99887766',
-      nombre: 'Pedro',
-      apellido: 'Ramírez',
-      email: 'pramirez_vetado@empresa.com',
-      password: blockedPass,
-      rol: Role.EMPLEADO,
-      bloqueado: true,
-      motivoBloqueo: 'Desincorporado por RRHH con prohibición de ingreso a plantas e instalaciones',
+      cedula: 'V-00000000',
+      nombre: 'Administrador',
+      apellido: 'Sistema',
+      email: 'admin@cai.local',
+      password: defaultAdminPass,
+      rol: Role.ADMINISTRADOR,
       registroCompletado: true,
+      debeCambiarClave: !process.env.INITIAL_ADMIN_PASSWORD,
     },
   });
-  console.log('✅ Usuario vetado de prueba (Pedro Ramírez) verificado en PostgreSQL');
+
+  console.log(`✅ Usuario Administrador inicial creado: admin@cai.local (V-00000000)`);
+  if (!process.env.INITIAL_ADMIN_PASSWORD) {
+    console.log(`🔑 Clave temporal generada para Administrador: ${initialAdminPass}`);
+  }
+}
+
+async function main() {
+  console.log('🚀 Iniciando script de siembra y aprovisionamiento (Seed)...');
+
+  const possiblePaths = [
+    path.join(process.cwd(), 'prisma', 'data', 'usuarios.csv'),
+    path.join(process.cwd(), 'usuarios.csv'),
+    path.join(__dirname, 'data', 'usuarios.csv'),
+    path.join(__dirname, 'usuarios.csv'),
+  ];
+
+  const selectedPath = possiblePaths.find((p) => fs.existsSync(p));
+
+  if (selectedPath && process.env.SEED_SKIP_CSV !== 'true') {
+    const totalMigrated = await migrateUsersFromCsv(selectedPath);
+    console.log(`\n🎉 Migración de usuarios desde CSV completada. Total: ${totalMigrated} usuarios.`);
+  } else {
+    console.log('ℹ️ Sin archivo CSV de migración o migración omitida. Verificando administrador inicial...');
+  }
+
+  // Garantizar siempre que exista al menos un ADMINISTRADOR operativo
+  await ensureBootstrapAdmin();
 }
 
 main()
