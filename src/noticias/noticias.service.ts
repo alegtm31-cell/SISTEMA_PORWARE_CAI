@@ -29,7 +29,7 @@ export class NoticiasService {
     return noticia;
   }
 
-  async create(dto: CreateNoticiaDto) {
+  async create(dto: CreateNoticiaDto, autorId?: string) {
     const created = await this.prisma.noticia.create({
       data: {
         titulo: dto.titulo.trim(),
@@ -39,6 +39,7 @@ export class NoticiasService {
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: 'CREAR_NOTICIA',
       entidad: 'Noticia',
       entidadId: created.id,
@@ -48,7 +49,7 @@ export class NoticiasService {
     return created;
   }
 
-  async update(id: string, dto: UpdateNoticiaDto) {
+  async update(id: string, dto: UpdateNoticiaDto, autorId?: string) {
     const existing = await this.prisma.noticia.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Noticia con ID '${id}' no encontrada`);
@@ -65,6 +66,7 @@ export class NoticiasService {
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: 'ACTUALIZAR_NOTICIA',
       entidad: 'Noticia',
       entidadId: id,
@@ -74,7 +76,7 @@ export class NoticiasService {
     return updated;
   }
 
-  async remove(id: string) {
+  async remove(id: string, autorId?: string) {
     const existing = await this.prisma.noticia.findUnique({ where: { id } });
     if (!existing) {
       throw new NotFoundException(`Noticia con ID '${id}' no encontrada`);
@@ -85,6 +87,7 @@ export class NoticiasService {
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: 'ELIMINAR_NOTICIA',
       entidad: 'Noticia',
       entidadId: id,
@@ -94,4 +97,3 @@ export class NoticiasService {
     return deleted;
   }
 }
-

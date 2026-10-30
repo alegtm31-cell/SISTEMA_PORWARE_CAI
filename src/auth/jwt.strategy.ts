@@ -37,6 +37,8 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
         rol: true,
         bloqueado: true,
         motivoBloqueo: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
         createdAt: true,
       },
     });

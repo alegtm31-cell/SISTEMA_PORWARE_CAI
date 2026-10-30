@@ -16,24 +16,26 @@ export class AccessController {
   @Get('lookup/:cedula')
   @Roles('SEGURIDAD', 'ADMINISTRADOR')
   @ApiOperation({
-    summary: 'Consultar identidad y estado en tiempo real para Garita',
-    description: 'Verifica si la cédula o código escaneado pertenece a un empleado o visitante registrado en la base de datos, obteniendo su estado actual de ingreso/salida.',
+    summary: 'Consultar identidad, pase QR HMAC-SHA256 y estado en tiempo real para Garita',
+    description: 'Verifica en el servidor si la cédula o el código QR firmado (CAI2:...) pertenece a un empleado o visitante con visita vigente.',
   })
   @ApiResponse({ status: 200, description: 'Datos de la persona e información de acceso.' })
+  @ApiResponse({ status: 403, description: 'Pase QR adulterado, expirado o rol sin permisos.' })
   @ApiResponse({ status: 404, description: 'Cédula no encontrada en la base de datos.' })
-  async lookupPersona(@Param('cedula') cedula: string) {
-    return await this.accessService.lookupPersona(cedula);
+  async lookupPersona(@Param('cedula') cedula: string, @Req() req: any) {
+    return await this.accessService.lookupPersona(cedula, req.user?.id);
   }
 
   @Post('check-in')
   @Roles('SEGURIDAD', 'ADMINISTRADOR')
   @ApiOperation({
     summary: 'Registrar entrada (Check-in)',
-    description: 'Registra el ingreso de un empleado o visitante admitiendo UUID o Cédula y observación opcional.',
+    description: 'Registra el ingreso de un empleado o visitante validando bloqueos, anti-passback y vigencia del pase QR en la tabla Visita.',
   })
   @ApiResponse({ status: 201, description: 'Entrada registrada con éxito en el historial.' })
-  @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado por la identificación provista.' })
-  @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol SEGURIDAD o ADMINISTRADOR.' })
+  @ApiResponse({ status: 400, description: 'Violación de Anti-Passback.' })
+  @ApiResponse({ status: 403, description: 'Persona bloqueada, pase QR inválido/vencido o rol no autorizado.' })
+  @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado.' })
   async registerEntry(@Body() dto: RegisterAccessDto, @Req() req: any) {
     return await this.accessService.registerAccess(
       dto.targetId,
@@ -41,6 +43,7 @@ export class AccessController {
       'ENTRADA',
       dto.observacion,
       req.user?.id,
+      dto.qrToken,
     );
   }
 
@@ -48,11 +51,12 @@ export class AccessController {
   @Roles('SEGURIDAD', 'ADMINISTRADOR')
   @ApiOperation({
     summary: 'Registrar salida (Check-out)',
-    description: 'Registra la salida de un empleado o visitante admitiendo UUID o Cédula y observación opcional.',
+    description: 'Registra la salida de un empleado o visitante admitiendo UUID, Cédula o Token QR y observación opcional.',
   })
   @ApiResponse({ status: 201, description: 'Salida registrada con éxito en el historial.' })
-  @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado por la identificación provista.' })
+  @ApiResponse({ status: 400, description: 'Violación de Anti-Passback (salida sin entrada previa).' })
   @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol SEGURIDAD o ADMINISTRADOR.' })
+  @ApiResponse({ status: 404, description: 'Persona o invitado no encontrado.' })
   async registerExit(@Body() dto: RegisterAccessDto, @Req() req: any) {
     return await this.accessService.registerAccess(
       dto.targetId,
@@ -60,7 +64,7 @@ export class AccessController {
       'SALIDA',
       dto.observacion,
       req.user?.id,
+      dto.qrToken,
     );
   }
 }
-

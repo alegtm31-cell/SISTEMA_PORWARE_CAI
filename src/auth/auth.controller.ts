@@ -6,8 +6,9 @@ import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
-import { Public } from './public.decorator';
+import { Public, AllowPasswordChange } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
 
 @ApiTags('Autenticación y Registro')
@@ -30,7 +31,6 @@ export class AuthController {
     const userAgent = req.headers['user-agent'] as string;
     return this.authService.login(loginDto, clientIp, userAgent);
   }
-
 
   @Public()
   @Get('check-preregistro/:cedula')
@@ -59,6 +59,7 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @AllowPasswordChange()
   @Get('profile')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -72,6 +73,7 @@ export class AuthController {
   }
 
   @UseGuards(JwtAuthGuard)
+  @AllowPasswordChange()
   @Patch('profile')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -85,5 +87,41 @@ export class AuthController {
     @Body() dto: UpdateProfileDto,
   ) {
     return this.authService.updateProfile(userId, dto);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @AllowPasswordChange()
+  @Post('change-password')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Cambiar contraseña (incluye cambio obligatorio en primer ingreso)',
+    description: 'Actualiza la contraseña del usuario autenticado y desactiva el indicador debeCambiarClave.',
+  })
+  @ApiResponse({ status: 200, description: 'Contraseña cambiada exitosamente.' })
+  @ApiResponse({ status: 400, description: 'Contraseña actual incorrecta o nueva clave inválida.' })
+  async changePassword(
+    @CurrentUser('id') userId: string,
+    @Body() dto: ChangePasswordDto,
+    @Req() req: Request,
+  ) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] as string;
+    return this.authService.changePassword(userId, dto, clientIp, userAgent);
+  }
+
+  @UseGuards(JwtAuthGuard)
+  @AllowPasswordChange()
+  @Post('logout')
+  @HttpCode(HttpStatus.OK)
+  @ApiBearerAuth('JWT-auth')
+  @ApiOperation({
+    summary: 'Cerrar sesión',
+    description: 'Registra el cierre de sesión del usuario autenticado en la bitácora de auditoría.',
+  })
+  async logout(@CurrentUser('id') userId: string, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] as string;
+    return this.authService.logout(userId, clientIp, userAgent);
   }
 }

@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, ForbiddenException, BadRequestException 
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuditoriaService } from '../auditoria/auditoria.service';
+import { verifyQrPassToken } from '../common/utils/qr-pass.util';
 
 @Injectable()
 export class AccessService {
@@ -16,211 +17,352 @@ export class AccessService {
     tipo: 'ENTRADA' | 'SALIDA',
     observacion?: string,
     registradoPorId?: string,
+    qrToken?: string,
   ) {
-    const cleanId = targetId.trim();
+    const rawTarget = (targetId || '').trim();
+    const tokenCandidate = qrToken?.trim().startsWith('CAI2:')
+      ? qrToken.trim()
+      : rawTarget.startsWith('CAI2:')
+      ? rawTarget
+      : undefined;
+
+    let verifiedVisitaId: string | undefined;
+    let cleanId = rawTarget;
+
+    // Validación criptográfica HMAC-SHA256 en el servidor si se presenta pase QR
+    if (tokenCandidate) {
+      const qrResult = verifyQrPassToken(tokenCandidate);
+      if (!qrResult.isValidSignature) {
+        await this.auditoriaService.registrar({
+          usuarioId: registradoPorId,
+          accion: 'ACCESO_DENEGADO_QR_ADULTERADO',
+          entidad: 'Visita',
+          detalles: { error: qrResult.error },
+        });
+        throw new ForbiddenException(`⛔ SEGURIDAD: ${qrResult.error}`);
+      }
+
+      if (qrResult.isExpired && tipo === 'ENTRADA') {
+        await this.auditoriaService.registrar({
+          usuarioId: registradoPorId,
+          accion: 'ACCESO_DENEGADO_QR_EXPIRADO',
+          entidad: 'Visita',
+          entidadId: qrResult.payload?.visitaId,
+          detalles: { cedula: qrResult.payload?.c, vigencia: qrResult.payload?.v },
+        });
+        throw new ForbiddenException(`⛔ PASE EXPIRADO: ${qrResult.error}`);
+      }
+
+      verifiedVisitaId = qrResult.payload?.visitaId;
+      cleanId = qrResult.payload?.invitadoId || qrResult.payload?.c || rawTarget;
+      isGuest = true;
+    }
 
     // Atomicidad: Nivel Serializable para prevenir condiciones de carrera en Anti-Passback bajo alta concurrencia
     return this.prisma.$transaction(
       async (tx) => {
-      if (isGuest) {
-        // Buscar invitado por ID o por Cédula
-        const guest = await tx.invitado.findFirst({
-          where: {
-            OR: [
-              { id: cleanId },
-              { cedula: { equals: cleanId, mode: 'insensitive' } },
-            ],
-          },
-        });
-
-        if (!guest) {
-          throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado`);
-        }
-
-        // Regla 1: Control de Bloqueo persistido en base de datos
-        if (guest.bloqueado && tipo === 'ENTRADA') {
-          await this.auditoriaService.registrar({
-            usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_BLOQUEO',
-            entidad: 'Invitado',
-            entidadId: guest.id,
-            detalles: { cedula: guest.cedula, motivo: guest.motivoBloqueo },
-          });
-          throw new ForbiddenException(
-            `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
-          );
-        }
-
-        // Regla 2: Anti-Passback atómico para Visitantes
-        const lastMove = await tx.historial.findFirst({
-          where: { invitadoId: guest.id },
-          orderBy: { timestamp: 'desc' },
-        });
-
-        if (lastMove) {
-          if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
-            await this.auditoriaService.registrar({
-              usuarioId: registradoPorId,
-              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-              entidad: 'Invitado',
-              entidadId: guest.id,
-              detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_ENTRADA' },
-            });
-            throw new BadRequestException(
-              `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
-            );
-          }
-          if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
-            await this.auditoriaService.registrar({
-              usuarioId: registradoPorId,
-              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-              entidad: 'Invitado',
-              entidadId: guest.id,
-              detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_SALIDA' },
-            });
-            throw new BadRequestException(
-              `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
-            );
-          }
-        } else if (tipo === 'SALIDA') {
-          throw new BadRequestException(
-            `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
-          );
-        }
-
-        return tx.historial.create({
-          data: {
-            invitadoId: guest.id,
-            tipo,
-            observacion: observacion || null,
-            registradoPorId: registradoPorId || null,
-          },
-          include: {
-            registradoPor: {
-              select: {
-                id: true,
-                nombre: true,
-                apellido: true,
-                rol: true,
-              },
+        if (isGuest) {
+          // Buscar invitado por ID o por Cédula
+          const guest = await tx.invitado.findFirst({
+            where: {
+              OR: [
+                { id: cleanId },
+                { cedula: { equals: cleanId, mode: 'insensitive' } },
+              ],
             },
-            invitado: {
-              include: {
-                empleado: {
-                  select: {
-                    nombre: true,
-                    apellido: true,
-                    email: true,
+          });
+
+          if (!guest || (guest as any).eliminado) {
+            throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado o dado de baja`);
+          }
+
+          // Regla 1: Control de Bloqueo persistido en base de datos
+          if (guest.bloqueado && tipo === 'ENTRADA') {
+            await this.auditoriaService.registrar({
+              usuarioId: registradoPorId,
+              accion: 'ACCESO_DENEGADO_BLOQUEO',
+              entidad: 'Invitado',
+              entidadId: guest.id,
+              detalles: { cedula: guest.cedula, motivo: guest.motivoBloqueo },
+            });
+            throw new ForbiddenException(
+              `⛔ Acceso BLOQUEADO para el visitante ${guest.nombre} ${guest.apellido}. Motivo: ${guest.motivoBloqueo || 'Restricción de ingreso vigente.'}`,
+            );
+          }
+
+          // Regla 1.b: Validar la visita en la tabla Visita (si viene de QR o si el modelo Visita está activo en BD)
+          let linkedVisitaId: string | null = null;
+          if ((tx as any).visita) {
+            if (verifiedVisitaId) {
+              const visita = await (tx as any).visita.findUnique({
+                where: { id: verifiedVisitaId },
+              });
+
+              if (!visita || visita.invitadoId !== guest.id) {
+                throw new ForbiddenException('⛔ El pase QR no corresponde a una visita registrada en el servidor.');
+              }
+
+              if (tipo === 'ENTRADA') {
+                if (visita.estado === 'CANCELADA' || visita.estado === 'DENEGADA') {
+                  throw new ForbiddenException(`⛔ La visita asociada a este pase fue ${visita.estado.toLowerCase()} por el anfitrión.`);
+                }
+                if (visita.fechaExpiracion && new Date(visita.fechaExpiracion).getTime() < Date.now()) {
+                  throw new ForbiddenException('⛔ La vigencia de la visita en el servidor ha expirado.');
+                }
+              }
+              linkedVisitaId = visita.id;
+            } else if (tipo === 'ENTRADA') {
+              const latestVisita = await (tx as any).visita.findFirst({
+                where: { invitadoId: guest.id },
+                orderBy: { createdAt: 'desc' },
+              });
+
+              if (latestVisita) {
+                if (latestVisita.estado === 'CANCELADA' || latestVisita.estado === 'DENEGADA') {
+                  throw new ForbiddenException(`⛔ La visita del invitado se encuentra ${latestVisita.estado.toLowerCase()}.`);
+                }
+                if (latestVisita.fechaExpiracion && new Date(latestVisita.fechaExpiracion).getTime() < Date.now()) {
+                  throw new ForbiddenException('⛔ El pase de visita del invitado ha vencido. Solicite renovación al anfitrión.');
+                }
+                linkedVisitaId = latestVisita.id;
+              }
+            }
+          }
+
+          // Regla 2: Anti-Passback atómico para Visitantes
+          const lastMove = await tx.historial.findFirst({
+            where: { invitadoId: guest.id },
+            orderBy: { timestamp: 'desc' },
+          });
+
+          if (lastMove) {
+            if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+                entidad: 'Invitado',
+                entidadId: guest.id,
+                detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+              });
+              throw new BadRequestException(
+                `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+              );
+            }
+            if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+                entidad: 'Invitado',
+                entidadId: guest.id,
+                detalles: { cedula: guest.cedula, tipoIntento: 'DOBLE_SALIDA' },
+              });
+              throw new BadRequestException(
+                `Anti-Passback: El visitante ${guest.nombre} ${guest.apellido} ya se encuentra fuera de las instalaciones.`,
+              );
+            }
+          } else if (tipo === 'SALIDA') {
+            throw new BadRequestException(
+              `No se puede registrar SALIDA para el visitante ${guest.nombre} ${guest.apellido} sin una ENTRADA previa registrada.`,
+            );
+          }
+
+          if (tipo === 'SALIDA' && linkedVisitaId && (tx as any).visita?.update) {
+            await (tx as any).visita.update({
+              where: { id: linkedVisitaId },
+              data: { estado: 'FINALIZADA' },
+            });
+          }
+
+          return tx.historial.create({
+            data: {
+              invitadoId: guest.id,
+              visitaId: linkedVisitaId,
+              tipo,
+              observacion: observacion || null,
+              registradoPorId: registradoPorId || null,
+            },
+            include: {
+              registradoPor: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  apellido: true,
+                  rol: true,
+                },
+              },
+              invitado: {
+                include: {
+                  empleado: {
+                    select: {
+                      nombre: true,
+                      apellido: true,
+                      email: true,
+                    },
                   },
                 },
               },
             },
-          },
-        });
-      } else {
-        // Buscar usuario/empleado por ID o por Cédula
-        const user = await tx.usuario.findFirst({
-          where: {
-            OR: [
-              { id: cleanId },
-              { cedula: { equals: cleanId, mode: 'insensitive' } },
-            ],
-          },
-        });
-
-        if (!user) {
-          throw new NotFoundException(`Usuario/Empleado con identificación '${cleanId}' no encontrado`);
-        }
-
-        // Regla 1: Control de Bloqueo persistido en base de datos
-        if (user.bloqueado && tipo === 'ENTRADA') {
-          await this.auditoriaService.registrar({
-            usuarioId: registradoPorId,
-            accion: 'ACCESO_DENEGADO_BLOQUEO',
-            entidad: 'Usuario',
-            entidadId: user.id,
-            detalles: { cedula: user.cedula, motivo: user.motivoBloqueo },
           });
-          throw new ForbiddenException(
-            `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
-          );
-        }
+        } else {
+          // Buscar usuario/empleado por ID o por Cédula
+          const user = await tx.usuario.findFirst({
+            where: {
+              OR: [
+                { id: cleanId },
+                { cedula: { equals: cleanId, mode: 'insensitive' } },
+              ],
+            },
+          });
 
-        // Regla 2: Anti-Passback atómico para Personal Interno
-        const lastMove = await tx.historial.findFirst({
-          where: { usuarioId: user.id },
-          orderBy: { timestamp: 'desc' },
-        });
+          if (!user) {
+            throw new NotFoundException(`Usuario/Empleado con identificación '${cleanId}' no encontrado`);
+          }
 
-        if (lastMove) {
-          if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+          // Regla 1: Control de Bloqueo persistido en base de datos
+          if (user.bloqueado && tipo === 'ENTRADA') {
             await this.auditoriaService.registrar({
               usuarioId: registradoPorId,
-              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+              accion: 'ACCESO_DENEGADO_BLOQUEO',
               entidad: 'Usuario',
               entidadId: user.id,
-              detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+              detalles: { cedula: user.cedula, motivo: user.motivoBloqueo },
             });
-            throw new BadRequestException(
-              `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+            throw new ForbiddenException(
+              `⛔ Acceso BLOQUEADO para ${user.nombre} ${user.apellido}. Motivo: ${user.motivoBloqueo || 'Desincorporado o restringido por Recursos Humanos.'}`,
             );
           }
-          if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
-            await this.auditoriaService.registrar({
-              usuarioId: registradoPorId,
-              accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
-              entidad: 'Usuario',
-              entidadId: user.id,
-              detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_SALIDA' },
-            });
-            throw new BadRequestException(
-              `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
-            );
-          }
-        } else if (tipo === 'SALIDA') {
-          throw new BadRequestException(
-            `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
-          );
-        }
 
-        return tx.historial.create({
-          data: {
-            usuarioId: user.id,
-            tipo,
-            observacion: observacion || null,
-            registradoPorId: registradoPorId || null,
-          },
-          include: {
-            registradoPor: {
-              select: {
-                id: true,
-                nombre: true,
-                apellido: true,
-                rol: true,
+          // Regla 2: Anti-Passback atómico para Personal Interno
+          const lastMove = await tx.historial.findFirst({
+            where: { usuarioId: user.id },
+            orderBy: { timestamp: 'desc' },
+          });
+
+          if (lastMove) {
+            if (lastMove.tipo === 'ENTRADA' && tipo === 'ENTRADA') {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+                entidad: 'Usuario',
+                entidadId: user.id,
+                detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_ENTRADA' },
+              });
+              throw new BadRequestException(
+                `Anti-Passback: ${user.nombre} ${user.apellido} ya tiene una ENTRADA registrada sin salida previa.`,
+              );
+            }
+            if (lastMove.tipo === 'SALIDA' && tipo === 'SALIDA') {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_ANTIPASSBACK',
+                entidad: 'Usuario',
+                entidadId: user.id,
+                detalles: { cedula: user.cedula, tipoIntento: 'DOBLE_SALIDA' },
+              });
+              throw new BadRequestException(
+                `Anti-Passback: ${user.nombre} ${user.apellido} ya se encuentra fuera de las instalaciones.`,
+              );
+            }
+          } else if (tipo === 'SALIDA') {
+            throw new BadRequestException(
+              `No se puede registrar SALIDA para ${user.nombre} ${user.apellido} sin una ENTRADA previa registrada.`,
+            );
+          }
+
+          return tx.historial.create({
+            data: {
+              usuarioId: user.id,
+              tipo,
+              observacion: observacion || null,
+              registradoPorId: registradoPorId || null,
+            },
+            include: {
+              registradoPor: {
+                select: {
+                  id: true,
+                  nombre: true,
+                  apellido: true,
+                  rol: true,
+                },
+              },
+              usuario: {
+                select: {
+                  id: true,
+                  cedula: true,
+                  nombre: true,
+                  apellido: true,
+                  rol: true,
+                },
               },
             },
-            usuario: {
-              select: {
-                id: true,
-                cedula: true,
-                nombre: true,
-                apellido: true,
-                rol: true,
-              },
-            },
-          },
-        });
-      }
-    },
-    {
-      isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
-    });
+          });
+        }
+      },
+      {
+        isolationLevel: Prisma.TransactionIsolationLevel.Serializable,
+      },
+    );
   }
 
-  async lookupPersona(identificacion: string) {
-    const cleanId = identificacion.trim();
-    if (!cleanId) {
+  async lookupPersona(identificacion: string, operadorId?: string) {
+    const raw = (identificacion || '').trim();
+    if (!raw) {
       throw new NotFoundException('Identificación vacía');
+    }
+
+    let cleanId = raw;
+    let qrMeta: {
+      isSignedPass: boolean;
+      visitaId?: string;
+      vigencia?: string;
+      placa?: string;
+    } = { isSignedPass: false };
+
+    if (raw.startsWith('CAI2:')) {
+      const qrCheck = verifyQrPassToken(raw);
+      if (!qrCheck.isValidSignature) {
+        await this.auditoriaService.registrar({
+          usuarioId: operadorId,
+          accion: 'LOOKUP_QR_ADULTERADO',
+          entidad: 'Visita',
+          detalles: { error: qrCheck.error },
+        });
+        throw new ForbiddenException(`⛔ SEGURIDAD: ${qrCheck.error}`);
+      }
+
+      if (qrCheck.isExpired) {
+        await this.auditoriaService.registrar({
+          usuarioId: operadorId,
+          accion: 'LOOKUP_QR_EXPIRADO',
+          entidad: 'Visita',
+          entidadId: qrCheck.payload?.visitaId,
+          detalles: { cedula: qrCheck.payload?.c, vigencia: qrCheck.payload?.v },
+        });
+        throw new ForbiddenException(`⛔ PASE DIGITAL EXPIRADO: ${qrCheck.error}`);
+      }
+
+      if ((this.prisma as any).visita?.findUnique && qrCheck.payload?.visitaId) {
+        const visita = await this.prisma.visita.findUnique({
+          where: { id: qrCheck.payload.visitaId },
+        });
+        if (!visita) {
+          throw new ForbiddenException('⛔ El pase QR no corresponde a ninguna visita válida en el servidor.');
+        }
+        if (visita.estado === 'CANCELADA' || visita.estado === 'DENEGADA') {
+          throw new ForbiddenException(`⛔ La visita asociada a este pase fue ${visita.estado.toLowerCase()}.`);
+        }
+        if (visita.fechaExpiracion && new Date(visita.fechaExpiracion).getTime() < Date.now()) {
+          throw new ForbiddenException('⛔ La visita asociada a este pase QR ha expirado en el servidor.');
+        }
+      }
+
+      cleanId = qrCheck.payload?.invitadoId || qrCheck.payload?.c || raw;
+      qrMeta = {
+        isSignedPass: true,
+        visitaId: qrCheck.payload?.visitaId,
+        vigencia: qrCheck.payload?.v?.slice(0, 10),
+        placa: qrCheck.payload?.p,
+      };
     }
 
     // Normalización de cédula con o sin prefijo V-, E-, etc.
@@ -233,42 +375,46 @@ export class AccessService {
       `J-${rawNumber}`,
     ];
 
-    // 1. Buscar en Usuario (Personal interno)
-    const user = await this.prisma.usuario.findFirst({
-      where: {
-        OR: [
-          { id: cleanId },
-          { cedula: { in: variants, mode: 'insensitive' } },
-        ],
-      },
-    });
-
-    if (user) {
-      const lastMove = await this.prisma.historial.findFirst({
-        where: { usuarioId: user.id },
-        orderBy: { timestamp: 'desc' },
+    // 1. Buscar en Usuario (Personal interno) si no es un pase QR de visitante
+    if (!qrMeta.isSignedPass) {
+      const user = await this.prisma.usuario.findFirst({
+        where: {
+          OR: [
+            { id: cleanId },
+            { cedula: { in: variants, mode: 'insensitive' } },
+          ],
+        },
       });
-      const estaDentro = lastMove?.tipo === 'ENTRADA';
 
-      return {
-        id: user.id,
-        cedula: user.cedula,
-        nombre: user.nombre,
-        apellido: user.apellido,
-        rol: user.rol,
-        isGuest: false,
-        empresa: 'Personal Interno',
-        bloqueado: user.bloqueado,
-        motivoBloqueo: user.motivoBloqueo,
-        estadoSeguridad: user.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
-        estaDentro,
-        ultimoRegistro: lastMove,
-      };
+      if (user) {
+        const lastMove = await this.prisma.historial.findFirst({
+          where: { usuarioId: user.id },
+          orderBy: { timestamp: 'desc' },
+        });
+        const estaDentro = lastMove?.tipo === 'ENTRADA';
+
+        return {
+          id: user.id,
+          cedula: user.cedula,
+          nombre: user.nombre,
+          apellido: user.apellido,
+          rol: user.rol,
+          isGuest: false,
+          empresa: 'Personal Interno',
+          fotoUrl: user.fotoUrl,
+          bloqueado: user.bloqueado,
+          motivoBloqueo: user.motivoBloqueo,
+          estadoSeguridad: user.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
+          estaDentro,
+          ultimoRegistro: lastMove,
+        };
+      }
     }
 
     // 2. Buscar en Invitado (Visitantes)
     const guest = await this.prisma.invitado.findFirst({
       where: {
+        eliminado: false,
         OR: [
           { id: cleanId },
           { cedula: { in: variants, mode: 'insensitive' } },
@@ -281,6 +427,10 @@ export class AccessService {
             apellido: true,
           },
         },
+        visitas: {
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
 
@@ -290,6 +440,7 @@ export class AccessService {
         orderBy: { timestamp: 'desc' },
       });
       const estaDentro = lastMove?.tipo === 'ENTRADA';
+      const latestVisita = Array.isArray((guest as any).visitas) ? (guest as any).visitas[0] : undefined;
 
       return {
         id: guest.id,
@@ -299,15 +450,20 @@ export class AccessService {
         rol: 'VISITANTE',
         isGuest: true,
         empresa: guest.empresa || 'Particular',
+        placa: qrMeta.placa || guest.placa || undefined,
+        fotoUrl: guest.fotoUrl,
         empleadoAnfitrion: guest.empleado ? `${guest.empleado.nombre} ${guest.empleado.apellido}` : undefined,
         bloqueado: guest.bloqueado,
         motivoBloqueo: guest.motivoBloqueo,
         estadoSeguridad: guest.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
         estaDentro,
         ultimoRegistro: lastMove,
+        paseFirmado: qrMeta.isSignedPass,
+        visitaId: qrMeta.visitaId || latestVisita?.id,
+        vigenciaHasta: qrMeta.vigencia || (latestVisita?.fechaExpiracion ? new Date(latestVisita.fechaExpiracion).toISOString().slice(0, 10) : undefined),
       };
     }
 
-    throw new NotFoundException(`No se encontró ningún empleado ni visitante registrado con la cédula o ID '${cleanId}'`);
+    throw new NotFoundException(`No se encontró ningún empleado ni visitante activo con la identificación '${cleanId}'`);
   }
 }

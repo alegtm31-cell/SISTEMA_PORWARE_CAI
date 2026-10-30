@@ -1,5 +1,6 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { AuditoriaService } from '../auditoria/auditoria.service';
 import { FilterHistorialDto } from './dto/filter-historial.dto';
 
 function getStartOfTodayCaracas(): Date {
@@ -17,7 +18,10 @@ function getStartOfTodayCaracas(): Date {
 
 @Injectable()
 export class HistorialService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Optional() private readonly auditoriaService?: AuditoriaService,
+  ) {}
 
   async findAll(filter: FilterHistorialDto) {
     const { tipo, targetType, startDate, endDate, search, skip, take } = filter;
@@ -258,7 +262,7 @@ export class HistorialService {
     };
   }
 
-  // Observaciones de solo adición con trazabilidad de autor y hora (Hallazgo 8)
+  // Observaciones de solo adición con trazabilidad de autor y hora (Hallazgo 8 + Producción 7)
   async updateObservacion(id: string, observacion: string, user?: any) {
     const record = await this.prisma.historial.findUnique({ where: { id } });
     if (!record) {
@@ -275,10 +279,22 @@ export class HistorialService {
     const nuevaEntrada = `[${timeStr} - ${autor}]: ${observacion.trim()}`;
     const observacionFinal = record.observacion ? `${record.observacion}\n${nuevaEntrada}` : nuevaEntrada;
 
-    return this.prisma.historial.update({
+    const updated = await this.prisma.historial.update({
       where: { id },
       data: { observacion: observacionFinal },
     });
+
+    if (this.auditoriaService) {
+      await this.auditoriaService.registrar({
+        usuarioId: user?.id,
+        accion: 'NOTA_BITACORA',
+        entidad: 'Historial',
+        entidadId: id,
+        detalles: { nota: observacion.trim(), autor },
+      });
+    }
+
+    return updated;
   }
 
   /**

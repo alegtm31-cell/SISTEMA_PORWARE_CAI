@@ -16,6 +16,7 @@ import { UpdateUserDto } from './dto/update-user.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 import { Role } from '@prisma/client';
 
 @ApiTags('Usuarios y Personal')
@@ -47,12 +48,13 @@ export class UsersController {
   }
 
   @Get(':id')
-  @Roles('ADMINISTRADOR', 'SEGURIDAD')
+  @Roles('ADMINISTRADOR')
   @ApiOperation({
     summary: 'Obtener detalle de un usuario',
-    description: 'Devuelve información completa del usuario incluyendo historial reciente e invitaciones creadas.',
+    description: 'Devuelve información completa del usuario incluyendo historial reciente e invitaciones creadas. Requiere rol ADMINISTRADOR.',
   })
   @ApiResponse({ status: 200, description: 'Detalle del usuario encontrado.' })
+  @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol ADMINISTRADOR.' })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
   async findOne(@Param('id') id: string) {
     return this.usersService.findOne(id);
@@ -66,8 +68,11 @@ export class UsersController {
   })
   @ApiResponse({ status: 201, description: 'Usuario creado exitosamente.' })
   @ApiResponse({ status: 409, description: 'Conflicto: ya existe un usuario con la misma cédula o correo.' })
-  async create(@Body() createUserDto: CreateUserDto) {
-    return this.usersService.create(createUserDto);
+  async create(
+    @Body() createUserDto: CreateUserDto,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.usersService.create(createUserDto, autorId);
   }
 
   @Patch(':id')
@@ -79,8 +84,12 @@ export class UsersController {
   @ApiResponse({ status: 200, description: 'Usuario actualizado exitosamente.' })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
   @ApiResponse({ status: 409, description: 'Conflicto de cédula o correo duplicado.' })
-  async update(@Param('id') id: string, @Body() updateUserDto: UpdateUserDto) {
-    return this.usersService.update(id, updateUserDto);
+  async update(
+    @Param('id') id: string,
+    @Body() updateUserDto: UpdateUserDto,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.usersService.update(id, updateUserDto, autorId);
   }
 
   @Patch(':id/bloquear')
@@ -93,8 +102,9 @@ export class UsersController {
     @Param('id') id: string,
     @Body('bloqueado') bloqueado: boolean,
     @Body('motivoBloqueo') motivoBloqueo?: string,
+    @CurrentUser('id') autorId?: string,
   ) {
-    return this.usersService.setBloqueo(id, bloqueado, motivoBloqueo);
+    return this.usersService.setBloqueo(id, bloqueado, motivoBloqueo, autorId);
   }
 
   @Delete(':id')
@@ -105,8 +115,10 @@ export class UsersController {
   })
   @ApiResponse({ status: 200, description: 'Usuario eliminado exitosamente.' })
   @ApiResponse({ status: 404, description: 'Usuario no encontrado.' })
-  async remove(@Param('id') id: string) {
-    return this.usersService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.usersService.remove(id, autorId);
   }
 }
-

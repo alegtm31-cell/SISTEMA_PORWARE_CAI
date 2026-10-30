@@ -15,6 +15,7 @@ import { UpdateNoticiaDto } from './dto/update-noticia.dto';
 import { JwtAuthGuard } from '../auth/jwt-auth.guard';
 import { RolesGuard } from '../auth/roles.guard';
 import { Roles } from '../auth/roles.decorator';
+import { CurrentUser } from '../auth/current-user.decorator';
 
 @ApiTags('Noticias y Cartelera')
 @ApiBearerAuth('JWT-auth')
@@ -24,6 +25,7 @@ export class NoticiasController {
   constructor(private readonly noticiasService: NoticiasService) {}
 
   @Get()
+  @Roles('ADMINISTRADOR', 'EMPLEADO')
   @ApiOperation({
     summary: 'Listar todas las noticias',
     description: 'Devuelve todas las publicaciones y avisos institucionales ordenados por fecha descendente.',
@@ -34,6 +36,7 @@ export class NoticiasController {
   }
 
   @Get(':id')
+  @Roles('ADMINISTRADOR', 'EMPLEADO')
   @ApiOperation({
     summary: 'Obtener detalle de una noticia',
     description: 'Devuelve el contenido completo de una noticia por su ID.',
@@ -52,8 +55,11 @@ export class NoticiasController {
   })
   @ApiResponse({ status: 201, description: 'Noticia publicada con éxito.' })
   @ApiResponse({ status: 403, description: 'Acceso denegado. Requiere rol ADMINISTRADOR.' })
-  async create(@Body() createNoticiaDto: CreateNoticiaDto) {
-    return this.noticiasService.create(createNoticiaDto);
+  async create(
+    @Body() createNoticiaDto: CreateNoticiaDto,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.noticiasService.create(createNoticiaDto, autorId);
   }
 
   @Patch(':id')
@@ -64,8 +70,12 @@ export class NoticiasController {
   })
   @ApiResponse({ status: 200, description: 'Noticia actualizada.' })
   @ApiResponse({ status: 404, description: 'Noticia no encontrada.' })
-  async update(@Param('id') id: string, @Body() updateNoticiaDto: UpdateNoticiaDto) {
-    return this.noticiasService.update(id, updateNoticiaDto);
+  async update(
+    @Param('id') id: string,
+    @Body() updateNoticiaDto: UpdateNoticiaDto,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.noticiasService.update(id, updateNoticiaDto, autorId);
   }
 
   @Delete(':id')
@@ -76,8 +86,10 @@ export class NoticiasController {
   })
   @ApiResponse({ status: 200, description: 'Noticia eliminada con éxito.' })
   @ApiResponse({ status: 404, description: 'Noticia no encontrada.' })
-  async remove(@Param('id') id: string) {
-    return this.noticiasService.remove(id);
+  async remove(
+    @Param('id') id: string,
+    @CurrentUser('id') autorId?: string,
+  ) {
+    return this.noticiasService.remove(id, autorId);
   }
 }
-

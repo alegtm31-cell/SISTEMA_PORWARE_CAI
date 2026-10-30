@@ -117,7 +117,7 @@ export class UsersService {
     return user;
   }
 
-  async create(dto: CreateUserDto) {
+  async create(dto: CreateUserDto, autorId?: string) {
     const cleanCedula = dto.cedula.trim();
     const cleanEmail = dto.email.trim().toLowerCase();
 
@@ -152,6 +152,8 @@ export class UsersService {
         departamento: dto.departamento ? dto.departamento.trim() : null,
         telefonoMovil: dto.telefonoMovil ? dto.telefonoMovil.trim() : null,
         telefonoFijo: dto.telefonoFijo ? dto.telefonoFijo.trim() : null,
+        registroCompletado: true,
+        debeCambiarClave: true,
       },
       select: {
         id: true,
@@ -164,11 +166,14 @@ export class UsersService {
         departamento: true,
         telefonoMovil: true,
         telefonoFijo: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
         createdAt: true,
       },
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: 'CREAR_USUARIO',
       entidad: 'Usuario',
       entidadId: user.id,
@@ -178,7 +183,7 @@ export class UsersService {
     return user;
   }
 
-  async update(id: string, dto: UpdateUserDto) {
+  async update(id: string, dto: UpdateUserDto, autorId?: string) {
     const existingUser = await this.prisma.usuario.findUnique({ where: { id } });
     if (!existingUser) {
       throw new NotFoundException(`Usuario con ID '${id}' no encontrado`);
@@ -209,6 +214,7 @@ export class UsersService {
 
     if (dto.password) {
       data.password = await bcrypt.hash(dto.password, 10);
+      data.debeCambiarClave = true;
     }
 
     if (dto.cargo !== undefined) data.cargo = dto.cargo ? dto.cargo.trim() : null;
@@ -236,6 +242,7 @@ export class UsersService {
 
     const isRoleChange = dto.rol && dto.rol !== existingUser.rol;
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: isRoleChange ? 'CAMBIO_ROL' : 'ACTUALIZAR_USUARIO',
       entidad: 'Usuario',
       entidadId: id,
@@ -250,7 +257,7 @@ export class UsersService {
     return updated;
   }
 
-  async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string) {
+  async setBloqueo(id: string, bloqueado: boolean, motivoBloqueo?: string, autorId?: string) {
     const user = await this.prisma.usuario.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException(`Usuario con ID '${id}' no encontrado`);
@@ -273,6 +280,7 @@ export class UsersService {
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: bloqueado ? 'BLOQUEO_USUARIO' : 'DESBLOQUEO_USUARIO',
       entidad: 'Usuario',
       entidadId: id,
@@ -282,7 +290,7 @@ export class UsersService {
     return updated;
   }
 
-  async remove(id: string) {
+  async remove(id: string, autorId?: string) {
     const user = await this.prisma.usuario.findUnique({
       where: { id },
       include: {
@@ -299,7 +307,7 @@ export class UsersService {
     }
 
     // Hallazgo: evitar fallo por clave foránea si tiene registros de acceso históricos
-    if (user._count.registros > 0) {
+    if (user._count.registros > 0 || user._count.invitaciones > 0) {
       // Bloqueo lógico en lugar de borrado físico destructivo para preservar evidencia histórica
       const result = await this.prisma.usuario.update({
         where: { id },
@@ -312,10 +320,12 @@ export class UsersService {
           cedula: true,
           nombre: true,
           apellido: true,
+          bloqueado: true,
         },
       });
 
       await this.auditoriaService.registrar({
+        usuarioId: autorId,
         accion: 'DESINCORPORAR_USUARIO',
         entidad: 'Usuario',
         entidadId: id,
@@ -336,6 +346,7 @@ export class UsersService {
     });
 
     await this.auditoriaService.registrar({
+      usuarioId: autorId,
       accion: 'ELIMINAR_USUARIO',
       entidad: 'Usuario',
       entidadId: id,

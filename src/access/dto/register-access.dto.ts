@@ -3,7 +3,7 @@ import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class RegisterAccessDto {
   @ApiProperty({
-    description: 'ID (UUID) o Cédula de la persona (empleado o visitante)',
+    description: 'ID (UUID), Cédula de la persona o Token QR firmado (CAI2:...)',
     example: 'V-12345678',
   })
   @IsString({ message: 'El identificador o cédula debe ser texto' })
@@ -24,5 +24,12 @@ export class RegisterAccessDto {
   @IsOptional()
   @IsString({ message: 'La observación debe ser texto' })
   observacion?: string;
-}
 
+  @ApiPropertyOptional({
+    description: 'Token QR firmado con HMAC-SHA256 escaneado en garita (opcional)',
+    example: 'CAI2:eyJ2aXNpdGFJZCI6...',
+  })
+  @IsOptional()
+  @IsString()
+  qrToken?: string;
+}

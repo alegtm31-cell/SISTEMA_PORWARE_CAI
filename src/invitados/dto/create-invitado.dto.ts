@@ -1,4 +1,5 @@
-import { IsNotEmpty, IsOptional, IsString } from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, IsInt, Min, Max } from 'class-validator';
+import { Type } from 'class-transformer';
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class CreateInvitadoDto {
@@ -65,4 +66,15 @@ export class CreateInvitadoDto {
   @IsOptional()
   @IsString({ message: 'El ID del empleado anfitrión debe ser texto' })
   empleadoId?: string;
+
+  @ApiPropertyOptional({
+    description: 'Días de vigencia del pase QR de la visita (por defecto 1 día)',
+    example: 1,
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(30)
+  vigenciaDias?: number;
 }

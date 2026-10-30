@@ -7,6 +7,7 @@ import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './jwt.strategy';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { ChangePasswordDto } from './dto/change-password.dto';
 
 @Injectable()
 export class AuthService {
@@ -87,7 +88,7 @@ export class AuthService {
       usuarioId: user.id,
       accion: 'LOGIN_EXITOSO',
       entidad: 'Auth',
-      detalles: { email: user.email, rol: user.rol, cedula: user.cedula },
+      detalles: { email: user.email, rol: user.rol, cedula: user.cedula, debeCambiarClave: user.debeCambiarClave },
       ip,
       userAgent,
     });
@@ -125,12 +126,14 @@ export class AuthService {
       throw new BadRequestException('El auto-registro está reservado exclusivamente para empleados pre-registrados.');
     }
 
-    // Comprobar si ya tiene perfil completado con contraseña propia usando el campo persistido en base de datos
-    const yaRegistrado = user.registroCompletado;
+    const yaRegistrado = Boolean(user.registroCompletado);
 
     return {
       preRegistrado: true,
+      preregistrado: true,
       yaRegistrado,
+      completado: yaRegistrado,
+      cedula: user.cedula,
       nombre: user.nombre,
       apellido: user.apellido,
     };
@@ -191,6 +194,8 @@ export class AuthService {
         telefonoMovil: true,
         telefonoFijo: true,
         fotoUrl: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
       },
     });
 
@@ -207,6 +212,7 @@ export class AuthService {
       usuarioId: updated.id,
       accion: 'REGISTRO_COMPLETADO',
       entidad: 'Usuario',
+      entidadId: updated.id,
       detalles: { cedula: updated.cedula, email: updated.email, rol: updated.rol },
       ip,
       userAgent,
@@ -234,6 +240,9 @@ export class AuthService {
         telefonoMovil: true,
         telefonoFijo: true,
         fotoUrl: true,
+        bloqueado: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
         createdAt: true,
         updatedAt: true,
       },
@@ -256,6 +265,7 @@ export class AuthService {
     const data: any = {};
     if (dto.nombre) data.nombre = dto.nombre.trim();
     if (dto.apellido) data.apellido = dto.apellido.trim();
+    if (dto.email) data.email = dto.email.trim().toLowerCase();
     if (dto.cargo !== undefined) data.cargo = dto.cargo ? dto.cargo.trim() : null;
     if (dto.departamento !== undefined) data.departamento = dto.departamento ? dto.departamento.trim() : null;
     if (dto.telefonoMovil !== undefined) data.telefonoMovil = dto.telefonoMovil ? dto.telefonoMovil.trim() : null;
@@ -270,10 +280,14 @@ export class AuthService {
       if (!isMatch) {
         throw new BadRequestException('La contraseña actual ingresada es incorrecta');
       }
+      if (dto.currentPassword === dto.newPassword) {
+        throw new BadRequestException('La nueva contraseña debe ser diferente a la contraseña actual');
+      }
       data.password = await bcrypt.hash(dto.newPassword, 10);
+      data.debeCambiarClave = false;
     }
 
-    return this.prisma.usuario.update({
+    const updated = await this.prisma.usuario.update({
       where: { id: userId },
       data,
       select: {
@@ -288,8 +302,91 @@ export class AuthService {
         telefonoMovil: true,
         telefonoFijo: true,
         fotoUrl: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
         updatedAt: true,
       },
     });
+
+    if (dto.newPassword) {
+      await this.auditoriaService.registrar({
+        usuarioId: userId,
+        accion: 'CAMBIO_CLAVE',
+        entidad: 'Usuario',
+        entidadId: userId,
+        detalles: { cedula: updated.cedula },
+      });
+    }
+
+    return updated;
+  }
+
+  async changePassword(userId: string, dto: ChangePasswordDto, ip?: string, userAgent?: string) {
+    const user = await this.prisma.usuario.findUnique({ where: { id: userId } });
+    if (!user) {
+      throw new NotFoundException('Usuario no encontrado');
+    }
+
+    const isMatch = await bcrypt.compare(dto.currentPassword, user.password);
+    if (!isMatch) {
+      throw new BadRequestException('La contraseña actual ingresada es incorrecta');
+    }
+
+    if (dto.currentPassword === dto.newPassword) {
+      throw new BadRequestException('La nueva contraseña debe ser diferente a la contraseña temporal o actual');
+    }
+
+    const hashedPassword = await bcrypt.hash(dto.newPassword, 10);
+
+    const updated = await this.prisma.usuario.update({
+      where: { id: userId },
+      data: {
+        password: hashedPassword,
+        debeCambiarClave: false,
+        registroCompletado: true,
+      },
+      select: {
+        id: true,
+        cedula: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        rol: true,
+        cargo: true,
+        departamento: true,
+        telefonoMovil: true,
+        telefonoFijo: true,
+        fotoUrl: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
+      },
+    });
+
+    await this.auditoriaService.registrar({
+      usuarioId: userId,
+      accion: 'CAMBIO_CLAVE_OBLIGATORIO',
+      entidad: 'Usuario',
+      entidadId: userId,
+      detalles: { cedula: updated.cedula, rol: updated.rol },
+      ip,
+      userAgent,
+    });
+
+    return {
+      message: 'Contraseña actualizada exitosamente.',
+      user: updated,
+    };
+  }
+
+  async logout(userId: string, ip?: string, userAgent?: string) {
+    await this.auditoriaService.registrar({
+      usuarioId: userId,
+      accion: 'LOGOUT',
+      entidad: 'Auth',
+      entidadId: userId,
+      ip,
+      userAgent,
+    });
+    return { message: 'Sesión cerrada exitosamente' };
   }
 }
