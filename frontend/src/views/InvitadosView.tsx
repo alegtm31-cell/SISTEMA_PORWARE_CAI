@@ -287,7 +287,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
       </div>
 
       {/* Grid de Tarjetas de Invitados */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '18px' }}>
+      <div className="cards-auto-grid">
         {loading ? (
           <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
             Cargando listado de visitantes...

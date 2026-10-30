@@ -45,7 +45,7 @@ export const HistorialView: React.FC = () => {
 
   return (
     <div className="animate-fade-in" style={{ width: '100%', minWidth: 0 }}>
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px' }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
           <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
             Bitácora de Auditoría & Accesos
@@ -82,8 +82,8 @@ export const HistorialView: React.FC = () => {
       )}
 
       {/* Barra de Filtros */}
-      <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
-        <div style={{ position: 'relative', flex: 1 }}>
+      <div className="glass-panel filter-bar-responsive" style={{ padding: '16px 20px', marginBottom: '24px' }}>
+        <div style={{ position: 'relative', flex: '1 1 220px' }}>
           <Search size={18} color="var(--text-dim)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
           <input
             type="text"
@@ -97,7 +97,7 @@ export const HistorialView: React.FC = () => {
 
         <select
           className="form-input"
-          style={{ width: '200px' }}
+          style={{ flex: '1 1 180px', maxWidth: '240px' }}
           value={tipoFilter}
           onChange={(e) => setTipoFilter(e.target.value)}
         >
@@ -108,7 +108,7 @@ export const HistorialView: React.FC = () => {
       </div>
 
       {/* Tabla de Bitácora */}
-      <div className="glass-panel" style={{ overflow: 'hidden' }}>
+      <div className="glass-panel" style={{ overflowX: 'auto' }}>
         <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left' }}>
           <thead>
             <tr style={{ background: 'var(--bg-table-header)', borderBottom: '1px solid var(--border-subtle)' }}>

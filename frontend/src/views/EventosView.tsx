@@ -286,7 +286,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
         </div>
       )}
 
-      <div className="responsive-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '20px' }}>
+      <div className="responsive-two-col">
         {/* Columna izquierda: Lista de Eventos */}
         <div className="glass-panel" style={{ padding: '20px', height: 'fit-content' }}>
           <h3 style={{ fontSize: '0.98rem', fontWeight: 700, color: 'var(--text-main)', marginBottom: '14px' }}>
@@ -438,7 +438,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
               </div>
 
               {/* Resumen de Aforo */}
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '10px', marginBottom: '20px' }}>
+              <div className="eventos-cupo-grid">
                 <div style={{ background: 'var(--bg-surface)', padding: '12px', borderRadius: '8px', border: '1px solid var(--border-subtle)' }}>
                   <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Aforo Máximo</div>
                   <div style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>{selectedEvento.aforo}</div>

@@ -5,9 +5,14 @@
   --primary-light: rgba(37, 99, 235, 0.15);
   --primary-border: rgba(37, 99, 235, 0.35);
 
+  --sidebar-w: 248px;
+  --header-h: 58px;
+
   --bg-dark: #121212;
+  --bg-app: #121212;
   --bg-surface: #1e1e1e;
   --bg-navbar: #1a1a1a;
+  --bg-header: #1a1a1a;
   --bg-sidebar: #1e1e1e;
   --bg-sidebar-hover: rgba(255, 255, 255, 0.05);
   --bg-card: #1e1e1e;
@@ -37,15 +42,19 @@
   --navbar-shadow: 0 2px 8px rgba(0, 0, 0, 0.4);
 
   --cyan: #2563eb;
+  --accent-cyan: #38bdf8;
   --cyan-glow: rgba(37, 99, 235, 0.35);
   --blue: #2563eb;
   --emerald: #10b981;
+  --accent-emerald: #10b981;
   --emerald-glow: rgba(16, 185, 129, 0.4);
   --amber: #f59e0b;
+  --accent-amber: #f59e0b;
   --amber-glow: rgba(245, 158, 11, 0.35);
   --rose: #ef4444;
   --rose-glow: rgba(239, 68, 68, 0.45);
   --violet: #8b5cf6;
+  --purple: #8b5cf6;
 
   --chart-track: #2a2f3a;
 
@@ -65,9 +74,14 @@
   --primary-light: rgba(37, 99, 235, 0.12);
   --primary-border: rgba(37, 99, 235, 0.3);
 
+  --sidebar-w: 248px;
+  --header-h: 58px;
+
   --bg-dark: #f0f2f5;
+  --bg-app: #f0f2f5;
   --bg-surface: #ffffff;
   --bg-navbar: #ffffff;
+  --bg-header: #ffffff;
   --bg-sidebar: #1c232b;
   --bg-sidebar-hover: rgba(255, 255, 255, 0.06);
   --bg-card: #ffffff;
@@ -97,15 +111,19 @@
   --navbar-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
 
   --cyan: #2563eb;
+  --accent-cyan: #0284c7;
   --cyan-glow: rgba(37, 99, 235, 0.2);
   --blue: #2563eb;
   --emerald: #10b981;
+  --accent-emerald: #059669;
   --emerald-glow: rgba(16, 185, 129, 0.2);
   --amber: #f59e0b;
+  --accent-amber: #d97706;
   --amber-glow: rgba(245, 158, 11, 0.2);
   --rose: #ef4444;
   --rose-glow: rgba(239, 68, 68, 0.2);
   --violet: #8b5cf6;
+  --purple: #8b5cf6;
 
   --chart-track: #e2e8f0;
 }
@@ -601,6 +619,266 @@ h1, h2, h3, h4 {
   border-radius: 2px;
 }
 
+/* ==========================================================================
+   LAYOUT SHELL & COMPONENTES CAI (DESKTOP + CAPACITOR ANDROID MÓVIL)
+   ========================================================================== */
+
+.app-shell {
+  display: flex;
+  flex-direction: row;
+  width: 100%;
+  min-height: 100vh;
+  background-color: var(--bg-app);
+  overflow-x: hidden;
+}
+
+.app-content {
+  flex: 1 1 0%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.main-scroll-area,
+.app-main-content {
+  flex: 1 1 0%;
+  width: 100%;
+  min-width: 0;
+  padding: 20px 24px;
+  overflow-y: auto;
+  overflow-x: hidden;
+  -webkit-overflow-scrolling: touch;
+  box-sizing: border-box;
+}
+
+/* Tarjetas estilo Fortinet / Porware */
+.forti-card {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--panel-shadow);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  min-width: 0;
+}
+
+.forti-card-header {
+  padding: 12px 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  border-bottom: 1px solid var(--border-subtle);
+  background-color: var(--bg-card-header);
+}
+
+.forti-card-title {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.forti-card-body {
+  padding: 16px;
+  flex: 1;
+  min-width: 0;
+}
+
+/* Filas Clave / Valor */
+.kv-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 8px 0;
+  border-bottom: 1px solid var(--border-subtle);
+  font-size: 0.8rem;
+}
+
+.kv-row:last-child {
+  border-bottom: none;
+  padding-bottom: 0;
+}
+
+.kv-row:first-child {
+  padding-top: 0;
+}
+
+.kv-label {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.kv-value {
+  color: var(--text-main);
+  font-weight: 700;
+  font-family: var(--font-mono);
+  text-align: right;
+}
+
+/* Tablas corporativas con scroll horizontal seguro */
+.forti-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  min-width: 540px;
+}
+
+.forti-table thead tr {
+  background: var(--bg-table-header);
+  border-bottom: 1px solid var(--border-subtle);
+}
+
+.forti-table th {
+  padding: 11px 14px;
+  font-size: 0.73rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.forti-table td {
+  padding: 12px 14px;
+  font-size: 0.82rem;
+  color: var(--text-main);
+  border-bottom: 1px solid var(--border-subtle);
+  vertical-align: middle;
+}
+
+.forti-table tbody tr:hover {
+  background: var(--bg-table-row-alt);
+}
+
+/* Botones adicionales usados en Garita, Eventos y Ajustes */
+.btn-emerald {
+  background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+  color: #ffffff;
+  border: 1px solid rgba(16, 185, 129, 0.45);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.btn-amber {
+  background: linear-gradient(135deg, #d97706 0%, #f59e0b 100%);
+  color: #ffffff;
+  border: 1px solid rgba(245, 158, 11, 0.45);
+  border-radius: var(--radius-sm);
+  padding: 10px 16px;
+  font-family: var(--font-body);
+  font-weight: 700;
+  font-size: 0.88rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  transition: all 0.15s ease;
+}
+
+.btn-secondary {
+  background: var(--bg-input);
+  color: var(--text-main);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 8px 14px;
+  font-family: var(--font-body);
+  font-weight: 600;
+  font-size: 0.84rem;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  transition: all 0.15s ease;
+}
+
+.input-field {
+  width: 100%;
+  background: var(--bg-input);
+  border: 1px solid var(--border-medium);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  color: var(--text-main);
+  font-size: 0.9rem;
+  font-family: var(--font-body);
+  outline: none;
+}
+
+.input-field:focus {
+  border-color: var(--border-focus);
+}
+
+/* Grillas Responsivas del Sistema */
+.dashboard-kpi-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.dashboard-widgets-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.responsive-two-col {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1.35fr);
+  gap: 20px;
+  width: 100%;
+  min-width: 0;
+}
+
+.eventos-cupo-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.cards-auto-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 310px), 1fr));
+  gap: 18px;
+}
+
+.form-grid-2 {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+}
+
+.filter-bar-responsive {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+/* Barra de Navegación Inferior Móvil (Oculta en Desktop) */
+.mobile-bottom-nav {
+  display: none;
+}
+
 /* Responsive Utilities & App-Format Styling */
 .desktop-sidebar {
   display: flex !important;
@@ -614,17 +892,6 @@ h1, h2, h3, h4 {
   display: inline-flex !important;
 }
 
-.app-main-content {
-  flex: 1 1 0%;
-  width: 100%;
-  min-width: 0;
-  padding: 20px 24px;
-  overflow-y: auto;
-  max-height: calc(100vh - 58px);
-  -webkit-overflow-scrolling: touch;
-  box-sizing: border-box;
-}
-
 /* Garita responsive grid system */
 .garita-grid {
   display: grid;
@@ -636,7 +903,16 @@ h1, h2, h3, h4 {
   box-sizing: border-box;
 }
 
-@media (max-width: 1080px) {
+@media (max-width: 1120px) {
+  .dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .dashboard-widgets-grid {
+    grid-template-columns: 1fr !important;
+  }
+
+  .responsive-two-col,
   .garita-grid {
     grid-template-columns: 1fr !important;
     gap: 16px;
@@ -657,25 +933,27 @@ h1, h2, h3, h4 {
     display: flex !important;
   }
 
-  .desktop-only {
+  .desktop-only,
+  .navbar-subtitle,
+  .navbar-clock {
     display: none !important;
   }
 
+  .main-scroll-area,
   .app-main-content {
-    padding: 12px 12px calc(80px + env(safe-area-inset-bottom, 12px)) 12px !important;
-    max-height: calc(100vh - 52px) !important;
+    padding: 12px 12px calc(82px + env(safe-area-inset-bottom, 12px)) 12px !important;
     width: 100% !important;
     min-width: 0 !important;
   }
 
-  /* Garita grid responsive collapse */
-  .garita-grid {
-    grid-template-columns: 1fr !important;
-    width: 100% !important;
-    min-width: 0 !important;
+  .dashboard-kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 10px !important;
   }
 
-  /* Cockpit & Invitados responsive collapse */
+  .dashboard-widgets-grid,
+  .responsive-two-col,
+  .garita-grid,
   .dashboard-cockpit-grid,
   .invitados-grid {
     grid-template-columns: 1fr !important;
@@ -683,29 +961,95 @@ h1, h2, h3, h4 {
     min-width: 0 !important;
   }
 
+  .eventos-cupo-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+  }
+
+  .glass-panel {
+    padding: 16px !important;
+  }
+
+  /* Barra de navegación inferior fija estilo App Nativa en Móvil */
+  .mobile-bottom-nav {
+    display: flex !important;
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    height: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+    background: var(--bg-navbar);
+    border-top: 1px solid var(--border-subtle);
+    box-shadow: 0 -4px 16px rgba(0, 0, 0, 0.35);
+    z-index: 95;
+    align-items: stretch;
+    justify-content: space-around;
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .mobile-nav-item {
+    flex: 1 0 auto;
+    min-width: 58px;
+    background: transparent;
+    border: none;
+    color: var(--text-muted);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 3px;
+    padding: 6px 4px;
+    cursor: pointer;
+    font-family: var(--font-body);
+    transition: color 0.15s ease, background-color 0.15s ease;
+  }
+
+  .mobile-nav-item.active {
+    color: var(--accent-cyan);
+  }
+
+  .mobile-nav-icon-wrap {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 26px;
+    border-radius: 999px;
+  }
+
+  .mobile-nav-item.active .mobile-nav-icon-wrap {
+    background: rgba(56, 189, 248, 0.14);
+  }
+
+  .mobile-nav-label {
+    font-size: 0.66rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    white-space: nowrap;
+  }
+
   /* Modal responsive sizing */
   .modal-responsive {
-    width: 92vw !important;
+    width: 94vw !important;
     max-width: 440px !important;
-    padding: 20px !important;
+    padding: 18px !important;
   }
 }
 
-@media (max-width: 960px) {
-  .dashboard-cockpit-grid {
+@media (max-width: 520px) {
+  .dashboard-kpi-grid {
     grid-template-columns: 1fr !important;
-    width: 100% !important;
   }
-  .invitados-grid {
-    grid-template-columns: 1fr !important;
-    width: 100% !important;
-  }
-}
 
-@media (max-width: 640px) {
+  .form-grid-2 {
+    grid-template-columns: 1fr !important;
+  }
+
   .hide-on-mobile {
     display: none !important;
   }
 }
+
 
 

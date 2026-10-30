@@ -81,43 +81,44 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTh
   return (
     <header
       style={{
-        height: 'var(--header-h)',
         minHeight: 'var(--header-h)',
         background: 'var(--bg-header)',
         borderBottom: '1px solid var(--border-subtle)',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        padding: '0 22px',
+        gap: '10px',
+        padding: '8px 14px',
         position: 'sticky',
         top: 0,
         zIndex: 40,
       }}
     >
       {/* Izquierda: Migas de pan */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', minWidth: 0, flex: 1 }}>
         <div
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '4px 10px',
+            gap: '5px',
+            padding: '4px 8px',
             borderRadius: '4px',
             background: 'rgba(14, 165, 233, 0.1)',
             border: '1px solid rgba(14, 165, 233, 0.25)',
-            color: 'var(--cyan)',
-            fontSize: '0.74rem',
+            color: 'var(--accent-cyan)',
+            fontSize: '0.72rem',
             fontWeight: 700,
+            flexShrink: 0,
           }}
         >
           <Shield size={13} />
-          <span>CAI-CORE</span>
+          <span>CAI</span>
         </div>
 
-        <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem' }}>/</span>
+        <span style={{ color: 'var(--text-dim)', fontSize: '0.85rem', flexShrink: 0 }}>/</span>
 
-        <div>
-          <span style={{ fontSize: '0.9rem', fontWeight: 700, color: 'var(--text-main)' }}>
+        <div style={{ minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <span style={{ fontSize: '0.88rem', fontWeight: 700, color: 'var(--text-main)' }}>
             {info.title}
           </span>
           <span
@@ -134,49 +135,52 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTh
       </div>
 
       {/* Derecha: Telemetría real de conexión, Reloj y Conmutador de Tema */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexShrink: 0 }}>
         {/* Selector de Tema (Dark / Light / Auto) */}
         <button
           onClick={onToggleTheme}
           title={`Tema actual: ${themeInfo.text}. Clic para alternar (Oscuro / Claro / Sistema)`}
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '4px 10px',
+            gap: '5px',
+            padding: '5px 8px',
             borderRadius: '4px',
             background: 'var(--bg-card)',
             border: '1px solid var(--border-subtle)',
             color: 'var(--text-main)',
-            fontSize: '0.74rem',
+            fontSize: '0.72rem',
             fontWeight: 600,
             cursor: 'pointer',
             transition: 'all 0.15s ease',
+            whiteSpace: 'nowrap',
           }}
         >
-          <ThemeIcon size={13} color="var(--cyan)" />
+          <ThemeIcon size={13} color="var(--accent-cyan)" />
           <span>{themeInfo.text}</span>
         </button>
 
         {/* Estado Backend Real */}
         <div
           style={{
-            display: 'flex',
+            display: 'inline-flex',
             alignItems: 'center',
-            gap: '6px',
-            padding: '4px 10px',
+            gap: '5px',
+            padding: '5px 8px',
             borderRadius: '4px',
             background: online ? 'rgba(16, 185, 129, 0.1)' : 'rgba(239, 68, 68, 0.12)',
             border: online
               ? '1px solid rgba(16, 185, 129, 0.3)'
               : '1px solid rgba(239, 68, 68, 0.35)',
             color: online ? 'var(--emerald)' : 'var(--rose)',
-            fontSize: '0.72rem',
+            fontSize: '0.7rem',
             fontWeight: 700,
+            whiteSpace: 'nowrap',
           }}
         >
           {online ? <Wifi size={12} /> : <WifiOff size={12} />}
-          <span>{online ? `API ONLINE (${dbStatus.toUpperCase()})` : 'SIN CONEXIÓN AL SERVIDOR'}</span>
+          <span>{online ? 'ONLINE' : 'OFFLINE'}</span>
+          <span className="desktop-only">{online ? `(${dbStatus.toUpperCase()})` : '• SIN RED'}</span>
         </div>
 
         {/* Reloj del sistema */}
@@ -193,9 +197,10 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTh
             fontFamily: 'var(--font-mono)',
             fontSize: '0.74rem',
             color: 'var(--text-main)',
+            whiteSpace: 'nowrap',
           }}
         >
-          <Clock size={12} color="var(--cyan)" />
+          <Clock size={12} color="var(--accent-cyan)" />
           <span>{timeStr}</span>
         </div>
       </div>

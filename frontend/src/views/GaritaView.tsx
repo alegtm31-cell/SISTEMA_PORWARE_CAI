@@ -599,7 +599,7 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
         </div>
       )}
 
-      <div className="responsive-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '24px' }}>
+      <div className="responsive-two-col">
         {/* Panel Izquierdo: Escáner QR / Cédula */}
         <div className="glass-panel" style={{ padding: '28px', height: 'fit-content' }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
@@ -824,7 +824,7 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
                 </div>
               )}
 
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '12px', marginBottom: '18px' }}>
+              <div className="form-grid-2" style={{ marginBottom: '18px' }}>
                 <div>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
                     <Car size={14} color="var(--accent-cyan)" />
@@ -1037,8 +1037,8 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
             </div>
           </div>
 
-          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
-            <div style={{ position: 'relative', width: '250px' }}>
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center', flexWrap: 'wrap', flex: '1 1 260px', justifyContent: 'flex-end' }}>
+            <div style={{ position: 'relative', flex: '1 1 200px', maxWidth: '300px' }}>
               <Search size={15} color="var(--text-dim)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
               <input
                 type="text"

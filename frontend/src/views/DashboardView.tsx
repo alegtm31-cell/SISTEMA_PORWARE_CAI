@@ -182,15 +182,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       )}
 
       {/* FILA 1: 4 Tarjetas KPI reales */}
-      <div
-        className="dashboard-kpi-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
-          gap: '14px',
-          marginBottom: '14px',
-        }}
-      >
+      <div className="dashboard-kpi-grid">
         <div className="forti-card">
           <div className="forti-card-header">
             <span className="forti-card-title">
@@ -287,15 +279,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       </div>
 
       {/* FILA 2: Estado real del Backend + Distribución de Flujo + Accesos Rápidos */}
-      <div
-        className="dashboard-widgets-grid"
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
-          gap: '14px',
-          marginBottom: '14px',
-        }}
-      >
+      <div className="dashboard-widgets-grid">
         {/* WIDGET 1: Estado Real del Servidor y Base de Datos */}
         <div className="forti-card">
           <div className="forti-card-header">

@@ -132,7 +132,7 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
         </div>
       )}
 
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(360px, 1fr))', gap: '22px' }}>
+      <div className="cards-auto-grid">
         {loading ? (
           <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
             Cargando comunicados...
