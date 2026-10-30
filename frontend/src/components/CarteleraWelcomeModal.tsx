@@ -181,7 +181,7 @@ export const CarteleraWelcomeModal: React.FC<CarteleraWelcomeModalProps> = ({
             style={{ padding: '9px 18px', fontSize: '0.86rem' }}
             onClick={handleClose}
           >
-            <span>Continuar a Garita</span>
+            <span>Entendido, continuar</span>
             <ArrowRight size={16} />
           </button>
         </div>

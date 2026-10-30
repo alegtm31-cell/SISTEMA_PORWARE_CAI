@@ -1,775 +1,747 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
+  UserPlus,
   Search,
-  QrCode,
+  Building2,
+  X,
   Check,
-  Copy,
-  MessageCircle,
-  Plus,
-  Share2,
-  Download,
-  Calendar,
-  Car,
-  User,
+  QrCode,
+  ShieldBan,
   ShieldCheck,
-  Sparkles,
+  Download,
+  Car,
+  FileText,
+  Edit3,
+  Trash2,
+  AlertCircle,
+  RefreshCw,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { generateLocalQrDataUrl } from '../utils/qrPass';
 import type { Invitado, Usuario } from '../types';
-import { createDigitalPassPayload, generateLocalQrDataUrl } from '../utils/qrPass';
 
 interface InvitadosViewProps {
-  currentUser?: Usuario | null;
+  user?: Usuario | null;
 }
 
-export const InvitadosView: React.FC<InvitadosViewProps> = ({ currentUser }) => {
+export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
+  const isAdmin = user?.rol === 'ADMINISTRADOR';
   const [invitados, setInvitados] = useState<Invitado[]>([]);
-  const [employees, setEmployees] = useState<Usuario[]>([]);
+  const [users, setUsers] = useState<Usuario[]>([]);
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
-  const [activePass, setActivePass] = useState<Invitado | null>(null);
-  const [qrDataUrl, setQrDataUrl] = useState<string>('');
-  const [passVigencia, setPassVigencia] = useState<string>('');
-  const [copied, setCopied] = useState(false);
-  const [mobileTab, setMobileTab] = useState<'anunciar' | 'pases'>('anunciar');
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingGuest, setEditingGuest] = useState<Invitado | null>(null);
 
-  useEffect(() => {
-    if (activePass) {
-      const { encoded, vigencia } = createDigitalPassPayload({
-        cedula: activePass.cedula,
-        nombre: activePass.nombre,
-        apellido: activePass.apellido,
-        placa: activePass.placa || undefined,
-      });
-      setPassVigencia(vigencia);
-      generateLocalQrDataUrl(encoded)
-        .then(setQrDataUrl)
-        .catch(() => setQrDataUrl(''));
-    } else {
-      setQrDataUrl('');
-    }
-  }, [activePass]);
+  // Estado para Pase Digital QR firmado por el Backend
+  const [activePass, setActivePass] = useState<Invitado | null>(null);
+  const [qrImageUrl, setQrImageUrl] = useState<string>('');
+  const [issuingPass, setIssuingPass] = useState(false);
 
   const [form, setForm] = useState({
     cedula: '',
     nombre: '',
     apellido: '',
     empresa: '',
-    empleadoId: currentUser?.id || '',
-    telefono: '',
+    motivo: '',
     placa: '',
-    motivo: 'Familiar',
+    anfitrionId: '',
+    vigenciaDias: 1,
   });
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
-      const [invRes, empRes] = await Promise.all([
-        api.getInvitados(search || undefined),
-        api.getUsers(),
-      ]);
-      setInvitados(invRes.data);
-      setEmployees(empRes.data);
-      if (invRes.data.length > 0 && !activePass) {
-        setActivePass(invRes.data[0]);
+      if (isAdmin) {
+        const [invRes, usrRes] = await Promise.all([api.getInvitados(search), api.getUsers()]);
+        setInvitados(invRes.data);
+        setUsers(usrRes.data);
+        if (!form.anfitrionId && usrRes.data.length > 0) {
+          setForm((prev) => ({ ...prev, anfitrionId: user?.id || usrRes.data[0].id }));
+        }
+      } else {
+        const invRes = await api.getMisInvitados(search);
+        setInvitados(invRes.data);
       }
-      if (empRes.data.length > 0 && !form.empleadoId) {
-        setForm((prev) => ({
-          ...prev,
-          empleadoId: currentUser?.id || empRes.data[0].id,
-        }));
-      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al cargar la lista de visitantes.');
     } finally {
       setLoading(false);
     }
-  };
+  }, [isAdmin, search, user?.id, form.anfitrionId]);
 
   useEffect(() => {
     loadData();
-  }, [search]);
+  }, [loadData]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!form.cedula || !form.nombre || !form.apellido) return;
-
-    const payload = {
-      cedula: form.cedula.trim(),
-      nombre: form.nombre.trim(),
-      apellido: form.apellido.trim(),
-      empresa: form.empresa.trim() || form.motivo,
-      placa: form.placa.trim().toUpperCase() || undefined,
-      telefono: form.telefono.trim() || undefined,
-      motivo: form.motivo.trim() || undefined,
-      empleadoId: form.empleadoId || currentUser?.id || employees[0]?.id || '',
-    };
-
-    const res = await api.createInvitado(payload);
-    if (res) {
-      setActivePass(res);
-      setMobileTab('pases'); // En móvil pasar directamente a visualizar y compartir el pase
+  // Renderizar QR local a partir del token HMAC-SHA256 emitido por el backend
+  useEffect(() => {
+    if (!activePass) {
+      setQrImageUrl('');
+      return;
     }
 
+    const ensureBackendTokenAndRender = async () => {
+      try {
+        let token = activePass.paseQr?.token;
+        if (!token) {
+          setIssuingPass(true);
+          const pase = await api.emitirPaseQr(activePass.id, 1);
+          token = pase.token;
+          setActivePass((prev) => (prev ? { ...prev, paseQr: pase } : null));
+        }
+        if (token) {
+          const url = await generateLocalQrDataUrl(token);
+          setQrImageUrl(url);
+        }
+      } catch (err: any) {
+        setErrorMsg(err?.message || 'No se pudo obtener el pase QR firmado del servidor.');
+      } finally {
+        setIssuingPass(false);
+      }
+    };
+
+    ensureBackendTokenAndRender();
+  }, [activePass]);
+
+  const handleRenewPass = async (vigenciaDias = 1) => {
+    if (!activePass) return;
+    setIssuingPass(true);
+    try {
+      const pase = await api.emitirPaseQr(activePass.id, vigenciaDias);
+      const url = await generateLocalQrDataUrl(pase.token);
+      setQrImageUrl(url);
+      setActivePass((prev) => (prev ? { ...prev, paseQr: pase } : null));
+      loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al renovar pase QR en el servidor.');
+    } finally {
+      setIssuingPass(false);
+    }
+  };
+
+  const handleOpenNewModal = () => {
+    setEditingGuest(null);
     setForm({
       cedula: '',
       nombre: '',
       apellido: '',
       empresa: '',
-      empleadoId: currentUser?.id || employees[0]?.id || '',
-      telefono: '',
+      motivo: '',
       placa: '',
-      motivo: 'Familiar',
+      anfitrionId: user?.id || (users[0]?.id ?? ''),
+      vigenciaDias: 1,
     });
-    loadData();
+    setIsModalOpen(true);
   };
 
-  const getShareText = (inv: Invitado) => {
-    const hostName = inv.empleado
-      ? `${inv.empleado.nombre} ${inv.empleado.apellido}`
-      : currentUser
-      ? `${currentUser.nombre} ${currentUser.apellido}`
-      : 'Propietario / Residente';
-
-    const fechaHoy = new Date().toLocaleDateString('es-ES', {
-      day: '2-digit',
-      month: 'long',
-      year: 'numeric',
+  const handleOpenEditModal = (inv: Invitado) => {
+    setEditingGuest(inv);
+    setForm({
+      cedula: inv.cedula,
+      nombre: inv.nombre,
+      apellido: inv.apellido,
+      empresa: inv.empresa || '',
+      motivo: inv.motivo || '',
+      placa: inv.placa || '',
+      anfitrionId: inv.anfitrionId || user?.id || '',
+      vigenciaDias: 1,
     });
-
-    const vehicleText = inv.placa ? `🚗 *Vehículo / Placa:* ${inv.placa}\n` : '';
-    const vigenciaText = passVigencia ? `⏳ *Vigencia:* Válido hasta el ${passVigencia}\n` : '';
-
-    return (
-      `🏢 *PASE DE ACCESO - PORWARE CAI*\n\n` +
-      `¡Hola *${inv.nombre}*! Tu anfitrión ha generado tu pase de acceso seguro:\n\n` +
-      `👤 *Visitante:* ${inv.nombre} ${inv.apellido}\n` +
-      `🪪 *Cédula / Documento:* ${inv.cedula}\n` +
-      vehicleText +
-      `🏡 *Anfitrión:* ${hostName}\n` +
-      `📅 *Fecha:* ${fechaHoy}\n` +
-      vigenciaText +
-      `📍 *Motivo:* ${inv.empresa || inv.motivo || 'Visita Autorizada'}\n\n` +
-      `*Instrucciones:* Muestra este código o tu cédula al oficial de garita para habilitar el torniquete o la barrera vehicular.`
-    );
+    setIsModalOpen(true);
   };
 
-  const handleShareWhatsApp = (inv: Invitado) => {
-    const mensaje = getShareText(inv);
-    const targetPhone = inv.telefono || form.telefono;
-    const cleanPhone = (targetPhone || '').replace(/[^0-9]/g, '');
-    const waUrl = cleanPhone
-      ? `https://api.whatsapp.com/send?phone=${cleanPhone}&text=${encodeURIComponent(mensaje)}`
-      : `https://api.whatsapp.com/send?text=${encodeURIComponent(mensaje)}`;
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!form.cedula || !form.nombre || !form.apellido) return;
 
-    window.open(waUrl, '_blank');
-  };
-
-  const handleNativeShare = async (inv: Invitado) => {
-    const mensaje = getShareText(inv);
-    if (typeof navigator !== 'undefined' && 'share' in navigator) {
-      try {
-        await navigator.share({
-          title: `Pase de Acceso - ${inv.nombre} ${inv.apellido}`,
-          text: mensaje,
-        });
-        return;
-      } catch {
-        // Fallback a WhatsApp si el usuario cancela o falla
-      }
-    }
-    handleShareWhatsApp(inv);
-  };
-
-  const handleCopyPass = async (inv: Invitado) => {
-    const text = getShareText(inv);
+    setErrorMsg(null);
     try {
-      await navigator.clipboard.writeText(text);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
-    } catch {
-      prompt('Copia tu código de acceso:', inv.cedula);
+      if (editingGuest) {
+        await api.updateInvitado(editingGuest.id, {
+          cedula: form.cedula.trim(),
+          nombre: form.nombre.trim(),
+          apellido: form.apellido.trim(),
+          empresa: form.empresa.trim() || undefined,
+          motivo: form.motivo.trim() || undefined,
+          placa: form.placa.trim().toUpperCase() || undefined,
+          vigenciaDias: Number(form.vigenciaDias) || 1,
+        });
+        setIsModalOpen(false);
+        setEditingGuest(null);
+        await loadData();
+      } else {
+        const created = await api.createInvitado({
+          cedula: form.cedula.trim(),
+          nombre: form.nombre.trim(),
+          apellido: form.apellido.trim(),
+          empresa: form.empresa.trim() || undefined,
+          motivo: form.motivo.trim() || undefined,
+          placa: form.placa.trim().toUpperCase() || undefined,
+          anfitrionId: isAdmin ? form.anfitrionId || user?.id : undefined,
+          vigenciaDias: Number(form.vigenciaDias) || 1,
+        });
+        setIsModalOpen(false);
+        await loadData();
+        setActivePass(created);
+      }
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al guardar los datos del invitado.');
     }
   };
 
-  const handleDownloadQr = (inv: Invitado) => {
-    if (!qrDataUrl) return;
-    const a = document.createElement('a');
-    a.href = qrDataUrl;
-    a.download = `Pase_CAI_${inv.cedula}_${inv.nombre}.png`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
+  const handleDeleteGuest = async (inv: Invitado) => {
+    const confirmDelete = window.confirm(
+      `¿Está seguro de eliminar/dar de baja al visitante ${inv.nombre} ${inv.apellido} (${inv.cedula})?`,
+    );
+    if (!confirmDelete) return;
+
+    setErrorMsg(null);
+    try {
+      await api.deleteInvitado(inv.id);
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'No se pudo eliminar el invitado.');
+    }
+  };
+
+  const handleToggleBloqueo = async (inv: Invitado) => {
+    if (!isAdmin) return;
+    const nuevoEstado = !inv.bloqueado;
+    let motivo: string | undefined;
+    if (nuevoEstado) {
+      const promptMotivo = window.prompt(
+        `Ingrese el motivo para bloquear el acceso a ${inv.nombre} ${inv.apellido}:`,
+        'Restricción de seguridad administrativa',
+      );
+      if (promptMotivo === null) return;
+      motivo = promptMotivo;
+    }
+
+    try {
+      await api.toggleBloqueoInvitado(inv.id, nuevoEstado, motivo);
+      await loadData();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al cambiar el estado de bloqueo del invitado.');
+    }
   };
 
   return (
-    <div className="animate-fade-in" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-      
-      {/* Encabezado Principal Orientado a Propietarios y Residentes */}
-      <div
-        style={{
-          display: 'flex',
-          justifyContent: 'space-between',
-          alignItems: 'center',
-          flexWrap: 'wrap',
-          gap: '10px',
-          paddingBottom: '8px',
-          borderBottom: '1px solid var(--border-subtle)',
-        }}
-      >
+    <div className="animate-fade-in" style={{ width: '100%', minWidth: 0 }}>
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '24px', flexWrap: 'wrap', gap: '12px' }}>
         <div>
-          <h1
-            style={{
-              fontSize: '1.25rem',
-              fontWeight: 800,
-              color: 'var(--text-main)',
-              letterSpacing: '-0.02em',
-              margin: 0,
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-            }}
-          >
-            <span>Pases y Anuncio de Visitantes</span>
-            <span
-              style={{
-                fontSize: '10px',
-                fontWeight: 700,
-                padding: '2px 7px',
-                borderRadius: '4px',
-                background: 'var(--primary-light)',
-                color: 'var(--primary)',
-                border: '1px solid var(--primary-border)',
-              }}
-            >
-              App Propietarios
-            </span>
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
+            {isAdmin ? 'Visitas, Invitados & Pases Digitales QR' : 'Mis Invitados & Pases de Visita'}
           </h1>
-          <p style={{ fontSize: '0.82rem', color: 'var(--text-muted)', margin: '2px 0 0 0' }}>
-            Pre-registra a tus invitados y envíales su pase con código QR directo por WhatsApp.
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+            {isAdmin
+              ? 'Gestión global de visitantes, pases QR firmados con HMAC-SHA256 y lista de restricción.'
+              : 'Agregue y gestione sus propios visitantes autorizados y descargue sus pases QR firmados.'}
           </p>
+        </div>
+
+        <button className="btn-primary" onClick={handleOpenNewModal}>
+          <UserPlus size={18} />
+          <span>Autorizar Nuevo Visitante</span>
+        </button>
+      </div>
+
+      {errorMsg && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '18px',
+            color: 'var(--rose)',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          <AlertCircle size={18} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* Buscador */}
+      <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px' }}>
+        <div style={{ position: 'relative' }}>
+          <Search
+            size={18}
+            color="var(--text-dim)"
+            style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }}
+          />
+          <input
+            type="text"
+            className="form-input"
+            style={{ paddingLeft: '38px' }}
+            placeholder="Buscar visitante por nombre, apellido, cédula o empresa..."
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+          />
         </div>
       </div>
 
-      {/* Selector de pestañas para vista móvil (Anunciar vs Pases) */}
-      <div
-        className="mobile-only"
-        style={{
-          display: 'flex',
-          background: 'var(--bg-input)',
-          borderRadius: '6px',
-          padding: '3px',
-          border: '1px solid var(--border-subtle)',
-          gap: '4px',
-        }}
-      >
-        <button
-          type="button"
-          onClick={() => setMobileTab('anunciar')}
-          style={{
-            flex: 1,
-            padding: '9px 12px',
-            borderRadius: '4px',
-            border: 'none',
-            background: mobileTab === 'anunciar' ? 'var(--primary)' : 'transparent',
-            color: mobileTab === 'anunciar' ? '#ffffff' : 'var(--text-muted)',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            transition: 'background-color 0.15s ease',
-          }}
-        >
-          <span>✍️ Anunciar Visita</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => setMobileTab('pases')}
-          style={{
-            flex: 1,
-            padding: '9px 12px',
-            borderRadius: '4px',
-            border: 'none',
-            background: mobileTab === 'pases' ? 'var(--primary)' : 'transparent',
-            color: mobileTab === 'pases' ? '#ffffff' : 'var(--text-muted)',
-            fontWeight: 700,
-            fontSize: '0.84rem',
-            cursor: 'pointer',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: '6px',
-            transition: 'background-color 0.15s ease',
-          }}
-        >
-          <span>🎟️ Mis Pases ({invitados.length})</span>
-        </button>
+      {/* Grid de Tarjetas de Invitados */}
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(330px, 1fr))', gap: '18px' }}>
+        {loading ? (
+          <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
+            Cargando listado de visitantes...
+          </div>
+        ) : invitados.length === 0 ? (
+          <div style={{ gridColumn: '1 / -1', padding: '50px', textAlign: 'center', color: 'var(--text-dim)' }} className="glass-panel">
+            No tiene visitantes registrados que coincidan con la búsqueda.
+          </div>
+        ) : (
+          invitados.map((inv) => (
+            <div
+              key={inv.id}
+              className="glass-panel"
+              style={{
+                padding: '22px',
+                display: 'flex',
+                flexDirection: 'column',
+                justifyContent: 'space-between',
+                border: inv.bloqueado ? '1px solid rgba(244, 63, 94, 0.45)' : undefined,
+              }}
+            >
+              <div>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: '8px' }}>
+                  <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                    <span className="badge badge-seguridad">VISITANTE</span>
+                    {inv.bloqueado && (
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(244, 63, 94, 0.18)',
+                          color: '#fb7185',
+                          border: '1px solid rgba(244, 63, 94, 0.4)',
+                        }}
+                      >
+                        VETADO
+                      </span>
+                    )}
+                  </div>
+                  <span style={{ fontFamily: 'var(--font-mono)', fontSize: '0.84rem', color: 'var(--accent-cyan)', fontWeight: 700 }}>
+                    {inv.cedula}
+                  </span>
+                </div>
+
+                <h3 style={{ fontSize: '1.18rem', fontWeight: 700, color: 'var(--text-main)', marginTop: '12px' }}>
+                  {inv.nombre} {inv.apellido}
+                </h3>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)', fontSize: '0.85rem', marginTop: '6px' }}>
+                  <Building2 size={14} color="var(--accent-cyan)" />
+                  <span>{inv.empresa || 'Visita Particular'}</span>
+                </div>
+
+                {(inv.motivo || inv.placa) && (
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '10px', marginTop: '10px' }}>
+                    {inv.motivo && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem', color: 'var(--text-muted)', background: 'rgba(255,255,255,0.04)', padding: '3px 8px', borderRadius: '6px' }}>
+                        <FileText size={12} color="var(--accent-cyan)" />
+                        {inv.motivo}
+                      </span>
+                    )}
+                    {inv.placa && (
+                      <span style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', fontSize: '0.76rem', color: 'var(--accent-amber)', background: 'rgba(245, 158, 11, 0.1)', padding: '3px 8px', borderRadius: '6px', fontFamily: 'var(--font-mono)', fontWeight: 700 }}>
+                        <Car size={12} />
+                        {inv.placa}
+                      </span>
+                    )}
+                  </div>
+                )}
+
+                {inv.paseQr?.vigenciaHasta && (
+                  <div style={{ marginTop: '8px', fontSize: '0.76rem', color: 'var(--emerald)' }}>
+                    Pase vigente hasta: {new Date(inv.paseQr.vigenciaHasta).toLocaleString('es-VE')}
+                  </div>
+                )}
+
+                {inv.bloqueado && inv.motivoBloqueo && (
+                  <div
+                    style={{
+                      marginTop: '10px',
+                      padding: '8px 10px',
+                      borderRadius: '8px',
+                      background: 'rgba(244, 63, 94, 0.1)',
+                      color: '#fb7185',
+                      fontSize: '0.78rem',
+                    }}
+                  >
+                    Motivo bloqueo: {inv.motivoBloqueo}
+                  </div>
+                )}
+              </div>
+
+              <div
+                style={{
+                  marginTop: '18px',
+                  paddingTop: '14px',
+                  borderTop: '1px solid var(--border-subtle)',
+                  display: 'flex',
+                  flexDirection: 'column',
+                  gap: '10px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', fontSize: '0.78rem' }}>
+                  <span style={{ color: 'var(--text-dim)' }}>Autorizado por:</span>
+                  <strong style={{ color: 'var(--text-muted)' }}>
+                    {inv.anfitrion ? `${inv.anfitrion.nombre} ${inv.anfitrion.apellido}` : `${user?.nombre || ''} ${user?.apellido || ''}`}
+                  </strong>
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ flex: 1, padding: '8px 10px', fontSize: '0.78rem' }}
+                    onClick={() => setActivePass(inv)}
+                    disabled={inv.bloqueado}
+                  >
+                    <QrCode size={15} color="var(--accent-cyan)" />
+                    <span>Pase QR</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ padding: '8px 10px', fontSize: '0.78rem' }}
+                    onClick={() => handleOpenEditModal(inv)}
+                    title="Editar datos del visitante"
+                  >
+                    <Edit3 size={15} />
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ padding: '8px 10px', fontSize: '0.78rem', color: 'var(--rose)' }}
+                    onClick={() => handleDeleteGuest(inv)}
+                    title="Eliminar o dar de baja al visitante"
+                  >
+                    <Trash2 size={15} />
+                  </button>
+
+                  {isAdmin && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      style={{
+                        padding: '8px 10px',
+                        fontSize: '0.78rem',
+                        color: inv.bloqueado ? '#34d399' : '#fb7185',
+                        borderColor: inv.bloqueado ? 'rgba(16, 185, 129, 0.35)' : 'rgba(244, 63, 94, 0.3)',
+                      }}
+                      onClick={() => handleToggleBloqueo(inv)}
+                      title={inv.bloqueado ? 'Quitar restricción' : 'Bloquear en Lista Negra'}
+                    >
+                      {inv.bloqueado ? <ShieldCheck size={15} /> : <ShieldBan size={15} />}
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          ))
+        )}
       </div>
 
-      {/* Cuadrícula Adaptable: Columna 1 (Formulario de Anuncio) + Columna 2 (Pase Activo y Lista) */}
-      <div
-        style={{
-          display: 'grid',
-          gridTemplateColumns: 'minmax(320px, 380px) 1fr',
-          gap: '16px',
-          alignItems: 'start',
-        }}
-        className="invitados-grid"
-      >
-        {/* COLUMNA 1: FORMULARIO DE ANUNCIO RÁPIDO */}
+      {/* Modal de Pase Digital QR Firmado en Backend */}
+      {activePass && (
         <div
-          className={`widget-card ${mobileTab === 'anunciar' ? '' : 'desktop-only'}`}
-          style={{ display: mobileTab === 'anunciar' ? 'flex' : undefined }}
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(6, 10, 19, 0.85)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 110,
+            padding: '20px',
+          }}
         >
-          <div className="widget-header">
-            <div className="widget-title-area">
-              <Sparkles size={14} color="var(--primary)" />
-              <span className="widget-title">Anunciar Nuevo Visitante</span>
+          <div
+            className="glass-panel animate-fade-in"
+            style={{
+              width: '100%',
+              maxWidth: '420px',
+              padding: '28px',
+              textAlign: 'center',
+              border: '1px solid var(--border-glow)',
+            }}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
+              <span className="badge badge-admin">PASE QR HMAC-SHA256</span>
+              <button className="btn-ghost" style={{ padding: '6px' }} onClick={() => setActivePass(null)}>
+                <X size={18} />
+              </button>
             </div>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>Paso 1 de 2</span>
-          </div>
 
-          <div className="widget-body">
-            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
-              
-              {/* Nombres y Apellidos */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+            <h3 style={{ fontSize: '1.25rem', fontWeight: 800, color: 'var(--text-main)' }}>
+              {activePass.nombre} {activePass.apellido}
+            </h3>
+            <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontSize: '0.92rem', marginTop: '2px' }}>
+              {activePass.cedula} • {activePass.empresa || 'Particular'}
+            </p>
+
+            <div
+              style={{
+                background: '#fff',
+                padding: '16px',
+                borderRadius: '14px',
+                display: 'inline-block',
+                margin: '18px 0 12px',
+                boxShadow: '0 10px 25px rgba(0,0,0,0.4)',
+              }}
+            >
+              {issuingPass || !qrImageUrl ? (
+                <div style={{ width: '210px', height: '210px', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0f172a', fontSize: '0.82rem' }}>
+                  Firmando pase en servidor...
+                </div>
+              ) : (
+                <img
+                  src={qrImageUrl}
+                  alt={`QR ${activePass.cedula}`}
+                  style={{ width: '210px', height: '210px', display: 'block' }}
+                />
+              )}
+            </div>
+
+            {activePass.paseQr?.vigenciaHasta && (
+              <div style={{ fontSize: '0.78rem', color: 'var(--emerald)', marginBottom: '8px', fontWeight: 600 }}>
+                Vigencia hasta: {new Date(activePass.paseQr.vigenciaHasta).toLocaleString('es-VE')}
+              </div>
+            )}
+
+            <div
+              style={{
+                background: 'var(--bg-surface)',
+                padding: '10px',
+                borderRadius: '8px',
+                fontFamily: 'var(--font-mono)',
+                fontSize: '0.68rem',
+                color: 'var(--text-muted)',
+                marginBottom: '16px',
+                wordBreak: 'break-all',
+              }}
+            >
+              {activePass.paseQr?.token || 'Solicitando firma al servidor...'}
+            </div>
+
+            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center', flexWrap: 'wrap' }}>
+              {qrImageUrl && (
+                <a
+                  href={qrImageUrl}
+                  download={`Pase_QR_${activePass.cedula}.png`}
+                  className="btn-ghost"
+                  style={{ textDecoration: 'none', flex: 1 }}
+                >
+                  <Download size={16} />
+                  <span>Descargar PNG</span>
+                </a>
+              )}
+              <button
+                type="button"
+                className="btn-ghost"
+                disabled={issuingPass}
+                onClick={() => handleRenewPass(1)}
+                style={{ flex: 1 }}
+                title="Emitir nueva visita con vigencia de 24 horas"
+              >
+                <RefreshCw size={16} />
+                <span>Renovar 24h</span>
+              </button>
+              <button className="btn-primary" style={{ flex: 1 }} onClick={() => setActivePass(null)}>
+                <Check size={16} />
+                <span>Listo</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Nuevo / Editar Invitado */}
+      {isModalOpen && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 15, 0.82)',
+            backdropFilter: 'blur(10px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '24px 16px',
+            overflowY: 'auto',
+          }}
+          onClick={() => setIsModalOpen(false)}
+        >
+          <div
+            className="glass-panel animate-fade-in"
+            style={{
+              width: '100%',
+              maxWidth: '480px',
+              maxHeight: 'calc(100vh - 48px)',
+              overflowY: 'auto',
+              padding: '28px',
+              background: 'var(--bg-surface)',
+              borderRadius: '16px',
+              boxShadow: '0 20px 50px rgba(0, 0, 0, 0.5), 0 0 25px rgba(14, 165, 233, 0.15)',
+              border: '1px solid var(--border-glow)',
+              margin: 'auto',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                {editingGuest ? 'Editar Datos del Visitante' : 'Autorizar Nuevo Visitante'}
+              </h3>
+              <button
+                type="button"
+                className="btn-ghost"
+                style={{ padding: '6px' }}
+                onClick={() => setIsModalOpen(false)}
+              >
+                <X size={18} />
+              </button>
+            </div>
+
+            <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Nombre *
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Nombre
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Ej. Mariana"
                     className="form-input"
-                    style={{ padding: '9px 12px', fontSize: '0.88rem' }}
                     value={form.nombre}
                     onChange={(e) => setForm({ ...form, nombre: e.target.value })}
                   />
                 </div>
                 <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Apellido *
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Apellido
                   </label>
                   <input
                     type="text"
                     required
-                    placeholder="Ej. Ruiz"
                     className="form-input"
-                    style={{ padding: '9px 12px', fontSize: '0.88rem' }}
                     value={form.apellido}
                     onChange={(e) => setForm({ ...form, apellido: e.target.value })}
                   />
                 </div>
               </div>
 
-              {/* Cédula / Código de Identificación */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Cédula / Documento de Identidad *
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  Cédula de Identidad
                 </label>
                 <input
                   type="text"
                   required
-                  placeholder="Ej. V-19876543 o Pasaporte"
                   className="form-input"
-                  style={{ padding: '9px 12px', fontSize: '0.9rem', fontFamily: 'var(--font-mono)' }}
+                  placeholder="Ej: V-19888777"
                   value={form.cedula}
                   onChange={(e) => setForm({ ...form, cedula: e.target.value })}
                 />
               </div>
 
-              {/* Teléfono WhatsApp y Placa Vehicular */}
-              <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '10px' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    WhatsApp del Visitante
-                  </label>
-                  <input
-                    type="tel"
-                    inputMode="tel"
-                    placeholder="+58 412 1234567"
-                    className="form-input"
-                    style={{ padding: '9px 12px', fontSize: '0.88rem' }}
-                    value={form.telefono}
-                    onChange={(e) => setForm({ ...form, telefono: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                    Placa (Opcional)
-                  </label>
-                  <input
-                    type="text"
-                    placeholder="AB123CD"
-                    className="form-input"
-                    style={{ padding: '9px 12px', fontSize: '0.88rem', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}
-                    value={form.placa}
-                    onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })}
-                  />
-                </div>
-              </div>
-
-              {/* Chips rápidos de motivo / relación */}
               <div>
-                <label style={{ display: 'block', fontSize: '0.75rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '6px' }}>
-                  Motivo / Tipo de Ingreso
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  Empresa o Institución (Opcional)
                 </label>
-                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                  {['Familiar', 'Delivery', 'Técnico / Servicio', 'Particular', 'Uber / Taxi', 'Médico'].map((chip) => {
-                    const isSelected = form.motivo === chip;
-                    return (
-                      <button
-                        key={chip}
-                        type="button"
-                        onClick={() => setForm({ ...form, motivo: chip, empresa: chip })}
-                        style={{
-                          padding: '4px 10px',
-                          borderRadius: '4px',
-                          border: isSelected ? '1px solid var(--primary)' : '1px solid var(--border-subtle)',
-                          background: isSelected ? 'var(--primary-light)' : 'var(--bg-input)',
-                          color: isSelected ? 'var(--primary)' : 'var(--text-muted)',
-                          fontSize: '0.75rem',
-                          cursor: 'pointer',
-                          fontWeight: isSelected ? 700 : 500,
-                          transition: 'all 0.12s ease',
-                        }}
-                      >
-                        {chip}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-
-              {/* Botón Principal Generar */}
-              <button
-                type="submit"
-                className="btn-primary"
-                style={{
-                  marginTop: '8px',
-                  padding: '11px',
-                  fontSize: '0.92rem',
-                  fontWeight: 700,
-                  width: '100%',
-                  borderRadius: '4px',
-                  gap: '8px',
-                }}
-              >
-                <Plus size={18} />
-                <span>Generar Pase y Código QR</span>
-              </button>
-            </form>
-          </div>
-        </div>
-
-        {/* COLUMNA 2: PASE DIGITAL ACTIVO & HISTORIAL DE PASES */}
-        <div
-          className={`${mobileTab === 'pases' ? '' : 'desktop-only'}`}
-          style={{ display: mobileTab === 'pases' ? 'flex' : undefined, flexDirection: 'column', gap: '14px' }}
-        >
-          {/* TARJETA DE PASE DIGITAL INTELIGENTE */}
-          {activePass ? (
-            <div className="widget-card" style={{ border: '1px solid var(--primary-border)' }}>
-              
-              <div className="widget-header" style={{ background: 'var(--primary-light)' }}>
-                <div className="widget-title-area">
-                  <ShieldCheck size={16} color="var(--primary)" />
-                  <span className="widget-title" style={{ color: 'var(--primary)' }}>
-                    Pase Digital Autorizado
-                  </span>
-                </div>
-                <span
-                  style={{
-                    fontSize: '11px',
-                    fontWeight: 700,
-                    padding: '2px 6px',
-                    borderRadius: '4px',
-                    background: 'rgba(16, 185, 129, 0.15)',
-                    color: 'var(--emerald)',
-                  }}
-                >
-                  Listo para Enviar
-                </span>
-              </div>
-
-              <div className="widget-body">
-                <div
-                  style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '20px',
-                    flexWrap: 'wrap',
-                  }}
-                >
-                  {/* Contenedor del Código QR */}
-                  <div
-                    style={{
-                      background: '#ffffff',
-                      padding: '10px',
-                      borderRadius: '6px',
-                      width: '120px',
-                      height: '120px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      flexShrink: 0,
-                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.15)',
-                      border: '1px solid #cbd5e1',
-                    }}
-                  >
-                    {qrDataUrl ? (
-                      <img
-                        src={qrDataUrl}
-                        alt={activePass.cedula}
-                        style={{ width: '100px', height: '100px', display: 'block' }}
-                      />
-                    ) : (
-                      <div style={{ fontSize: '11px', color: '#64748b', textAlign: 'center' }}>
-                        Generando QR...
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Datos del Pase Digital */}
-                  <div style={{ flex: 1, minWidth: '200px' }}>
-                    <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
-                      {activePass.nombre} {activePass.apellido}
-                    </div>
-                    <div style={{ fontSize: '0.95rem', fontWeight: 700, fontFamily: 'var(--font-mono)', color: 'var(--primary)', marginTop: '2px' }}>
-                      {activePass.cedula}
-                    </div>
-                    <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: '4px' }}>
-                      Motivo: <strong>{activePass.empresa || activePass.motivo || 'Visita Particular'}</strong>
-                    </div>
-
-                    {activePass.placa && (
-                      <div style={{ fontSize: '0.8rem', color: 'var(--text-main)', marginTop: '3px', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        <Car size={13} color="var(--primary)" />
-                        <span>Placa: <strong style={{ fontFamily: 'var(--font-mono)' }}>{activePass.placa}</strong></span>
-                      </div>
-                    )}
-
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '8px', flexWrap: 'wrap' }}>
-                      <span
-                        style={{
-                          fontSize: '11px',
-                          fontWeight: 600,
-                          padding: '2px 8px',
-                          borderRadius: '4px',
-                          background: 'rgba(16, 185, 129, 0.12)',
-                          color: 'var(--emerald)',
-                          border: '1px solid rgba(16, 185, 129, 0.25)',
-                          display: 'flex',
-                          alignItems: 'center',
-                          gap: '4px',
-                        }}
-                      >
-                        <Calendar size={12} />
-                        <span>Válido hasta: {passVigencia || 'Hoy 23:59'}</span>
-                      </span>
-                    </div>
-                  </div>
-
-                  {/* Acciones de Compartir (WhatsApp, Copiar, Descargar) */}
-                  <div
-                    style={{
-                      display: 'flex',
-                      flexDirection: 'column',
-                      gap: '8px',
-                      minWidth: '180px',
-                      width: '100%',
-                      maxWidth: '240px',
-                    }}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => handleShareWhatsApp(activePass)}
-                      style={{
-                        background: '#25D366',
-                        color: '#ffffff',
-                        border: 'none',
-                        borderRadius: '4px',
-                        padding: '10px 14px',
-                        fontWeight: 700,
-                        fontSize: '0.88rem',
-                        cursor: 'pointer',
-                        display: 'flex',
-                        alignItems: 'center',
-                        justifyContent: 'center',
-                        gap: '8px',
-                        boxShadow: '0 2px 6px rgba(37, 211, 102, 0.35)',
-                      }}
-                    >
-                      <MessageCircle size={16} />
-                      <span>Enviar por WhatsApp</span>
-                    </button>
-
-                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '6px' }}>
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => handleCopyPass(activePass)}
-                        style={{ padding: '7px 8px', fontSize: '0.78rem', justifyContent: 'center', gap: '4px' }}
-                        title="Copiar texto del pase"
-                      >
-                        {copied ? <Check size={13} color="var(--emerald)" /> : <Copy size={13} />}
-                        <span>{copied ? '¡Listo!' : 'Copiar'}</span>
-                      </button>
-
-                      <button
-                        type="button"
-                        className="btn-ghost"
-                        onClick={() => handleDownloadQr(activePass)}
-                        style={{ padding: '7px 8px', fontSize: '0.78rem', justifyContent: 'center', gap: '4px' }}
-                        title="Descargar imagen QR"
-                      >
-                        <Download size={13} />
-                        <span>Bajar QR</span>
-                      </button>
-                    </div>
-
-                    <button
-                      type="button"
-                      className="btn-ghost"
-                      onClick={() => handleNativeShare(activePass)}
-                      style={{ padding: '7px 10px', fontSize: '0.78rem', justifyContent: 'center', gap: '6px' }}
-                    >
-                      <Share2 size={13} />
-                      <span>Compartir General</span>
-                    </button>
-                  </div>
-                </div>
-              </div>
-
-            </div>
-          ) : null}
-
-          {/* LISTA HISTÓRICA DE VISITANTES ANUNCIADOS */}
-          <div className="widget-card">
-            <div className="widget-header">
-              <div className="widget-title-area">
-                <User size={14} color="var(--primary)" />
-                <span className="widget-title">Mis Visitantes Anunciados ({invitados.length})</span>
-              </div>
-              <div style={{ position: 'relative', width: '180px' }}>
-                <Search
-                  size={12}
-                  color="var(--text-dim)"
-                  style={{ position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)' }}
-                />
                 <input
                   type="text"
                   className="form-input"
-                  style={{ padding: '4px 8px 4px 26px', fontSize: '0.76rem', height: '28px' }}
-                  placeholder="Buscar visitante..."
-                  value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  placeholder="Ej: Proveedores C.A. o Particular"
+                  value={form.empresa}
+                  onChange={(e) => setForm({ ...form, empresa: e.target.value })}
                 />
               </div>
-            </div>
 
-            <div className="widget-body" style={{ padding: '8px 12px' }}>
-              {loading ? (
-                <div style={{ padding: '16px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
-                  Cargando visitantes...
+              <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: '12px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Motivo de la Visita
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ej: Reunión técnica, Entrega..."
+                    value={form.motivo}
+                    onChange={(e) => setForm({ ...form, motivo: e.target.value })}
+                  />
                 </div>
-              ) : invitados.length === 0 ? (
-                <div style={{ padding: '20px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.8rem' }}>
-                  No hay visitantes anunciados todavía.
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Placa Vehículo (Opc.)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ej: AA123BB"
+                    value={form.placa}
+                    onChange={(e) => setForm({ ...form, placa: e.target.value.toUpperCase() })}
+                    style={{ fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}
+                  />
                 </div>
-              ) : (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                  {invitados.map((inv) => {
-                    const isSelected = activePass?.id === inv.id;
+              </div>
 
-                    return (
-                      <div
-                        key={inv.id}
-                        onClick={() => {
-                          setActivePass(inv);
-                          setMobileTab('pases');
-                        }}
-                        style={{
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'space-between',
-                          padding: '8px 12px',
-                          borderRadius: '4px',
-                          background: isSelected ? 'var(--primary-light)' : 'var(--bg-input)',
-                          border: isSelected ? '1px solid var(--primary-border)' : '1px solid var(--border-subtle)',
-                          cursor: 'pointer',
-                          transition: 'all 0.15s ease',
-                        }}
-                      >
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                          <div
-                            style={{
-                              width: '32px',
-                              height: '32px',
-                              borderRadius: '4px',
-                              background: isSelected ? 'var(--primary)' : 'var(--border-subtle)',
-                              color: isSelected ? '#ffffff' : 'var(--text-main)',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontWeight: 700,
-                              fontSize: '0.82rem',
-                            }}
-                          >
-                            {inv.nombre[0]}
-                          </div>
-                          <div>
-                            <div style={{ fontSize: '0.86rem', fontWeight: 600, color: 'var(--text-main)' }}>
-                              {inv.nombre} {inv.apellido}
-                            </div>
-                            <div style={{ fontSize: '0.72rem', color: 'var(--text-muted)', fontFamily: 'var(--font-mono)' }}>
-                              {inv.cedula} {inv.placa ? `• 🚗 ${inv.placa}` : ''} • {inv.empresa || inv.motivo || 'Visita'}
-                            </div>
-                          </div>
-                        </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                  Vigencia del Pase QR (días)
+                </label>
+                <input
+                  type="number"
+                  min={1}
+                  max={30}
+                  className="form-input"
+                  value={form.vigenciaDias}
+                  onChange={(e) => setForm({ ...form, vigenciaDias: Number(e.target.value) || 1 })}
+                />
+              </div>
 
-                        <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                          <button
-                            type="button"
-                            className="widget-action-btn"
-                            style={{ width: '28px', height: '28px', color: '#25D366' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleShareWhatsApp(inv);
-                            }}
-                            title="Reenviar por WhatsApp"
-                          >
-                            <MessageCircle size={15} />
-                          </button>
-
-                          <button
-                            type="button"
-                            className="widget-action-btn"
-                            style={{ width: '28px', height: '28px', color: 'var(--primary)' }}
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              setActivePass(inv);
-                              setMobileTab('pases');
-                            }}
-                            title="Ver Pase QR"
-                          >
-                            <QrCode size={15} />
-                          </button>
-                        </div>
-                      </div>
-                    );
-                  })}
+              {isAdmin && !editingGuest && users.length > 0 && (
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.8rem', color: 'var(--text-muted)', marginBottom: '5px' }}>
+                    Anfitrión que Autoriza
+                  </label>
+                  <select
+                    className="form-input"
+                    value={form.anfitrionId}
+                    onChange={(e) => setForm({ ...form, anfitrionId: e.target.value })}
+                  >
+                    {users.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.nombre} {u.apellido} ({u.rol})
+                      </option>
+                    ))}
+                  </select>
                 </div>
               )}
-            </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '10px', marginTop: '14px' }}>
+                <button type="button" className="btn-ghost" onClick={() => setIsModalOpen(false)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primary">
+                  <Check size={18} />
+                  <span>{editingGuest ? 'Guardar Cambios' : 'Registrar y Emitir QR'}</span>
+                </button>
+              </div>
+            </form>
           </div>
         </div>
-
-      </div>
-
+      )}
     </div>
   );
 };

@@ -1,818 +1,776 @@
 import type {
-  HistorialRegistro,
+  Usuario,
   Invitado,
+  HistorialRegistro,
   Noticia,
   PersonaLookup,
-  StatsResponse,
-  Usuario,
+  StatsSummary,
+  TipoAcceso,
+  PaseQrInfo,
 } from '../types';
+import { offlineQueue, type OfflineMovementItem } from './offlineQueue';
 
-export function getApiBase(): string {
+// Limpieza preventiva de cualquier clave residual del antiguo modo demo local
+const LEGACY_KEYS = ['cai_local_users', 'cai_local_guests', 'cai_local_historial', 'cai_local_noticias'];
+if (typeof window !== 'undefined') {
+  LEGACY_KEYS.forEach((k) => localStorage.removeItem(k));
+}
+
+const getBaseApiUrl = () => {
+  const custom = localStorage.getItem('cai_custom_api_url');
+  if (custom && custom.trim()) {
+    const clean = custom.trim().replace(/\/$/, '');
+    return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+  }
+  const envUrl = import.meta.env.VITE_API_URL;
+  if (envUrl && envUrl.trim()) {
+    const clean = envUrl.trim().replace(/\/$/, '');
+    return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+  }
+  return '/api/v1';
+};
+
+function getAuthHeaders(includeJson = true): Record<string, string> {
+  const token = localStorage.getItem('cai_token');
+  return {
+    ...(includeJson ? { 'Content-Type': 'application/json' } : {}),
+    ...(token ? { Authorization: `Bearer ${token}` } : {}),
+  };
+}
+
+function clearSessionAndNotifyUnauthorized() {
+  localStorage.removeItem('cai_token');
+  localStorage.removeItem('cai_user');
   if (typeof window !== 'undefined') {
-    const custom = localStorage.getItem('cai_custom_api_url');
-    if (custom) return `${custom.replace(/\/$/, '')}/api/v1`;
-
-    if (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') {
-      return 'http://localhost:3000/api/v1';
-    }
+    window.dispatchEvent(new CustomEvent('cai:unauthorized'));
   }
-  const raw = (import.meta as any).env?.VITE_API_URL || 'http://localhost:3000';
-  return `${raw.replace(/\/$/, '')}/api/v1`;
 }
 
-function buildUrl(endpoint: string): URL {
-  const base = getApiBase();
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  if (base.startsWith('http://') || base.startsWith('https://')) {
-    return new URL(`${base}${cleanEndpoint}`);
-  }
-  return new URL(`${window.location.origin}${base}${cleanEndpoint}`);
+async function parseErrorMessage(res: Response, fallbackMessage: string): Promise<{ message: string; code?: string }> {
+  const errData = await res.json().catch(() => null);
+  const rawMessage = errData?.message;
+  const message = Array.isArray(rawMessage)
+    ? rawMessage.join('. ')
+    : typeof rawMessage === 'string' && rawMessage.trim()
+      ? rawMessage
+      : fallbackMessage;
+  return { message, code: errData?.code };
 }
 
-// Web Audio synthesizer for garita chime feedback & laser barcode beep
-export function playChime(type: 'success' | 'exit' | 'alert' | 'laser') {
+async function apiFetch<T>(
+  path: string,
+  options: RequestInit = {},
+  fallbackError = 'Error en la solicitud al servidor',
+): Promise<T> {
+  const API_URL = getBaseApiUrl();
+  let res: Response;
+
   try {
-    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-
-    if (type === 'laser') {
-      osc.type = 'sine';
-      osc.frequency.setValueAtTime(2400, ctx.currentTime);
-      gain.gain.setValueAtTime(0.2, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.06);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.06);
-    } else if (type === 'success') {
-      osc.frequency.setValueAtTime(600, ctx.currentTime);
-      osc.frequency.setValueAtTime(900, ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.28);
-    } else if (type === 'exit') {
-      osc.frequency.setValueAtTime(700, ctx.currentTime);
-      osc.frequency.setValueAtTime(460, ctx.currentTime + 0.08);
-      gain.gain.setValueAtTime(0.18, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.28);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.28);
-    } else {
-      osc.type = 'sawtooth';
-      osc.frequency.setValueAtTime(220, ctx.currentTime);
-      osc.frequency.setValueAtTime(140, ctx.currentTime + 0.15);
-      gain.gain.setValueAtTime(0.25, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.01, ctx.currentTime + 0.5);
-      osc.start();
-      osc.stop(ctx.currentTime + 0.5);
-    }
+    res = await fetch(`${API_URL}${path}`, {
+      ...options,
+      headers: {
+        ...getAuthHeaders(options.body !== undefined),
+        ...(options.headers || {}),
+      },
+    });
   } catch {
-    // Audio context may require user gesture on some browsers
+    throw new Error('Error de red: No se pudo conectar con el servidor CAI.');
   }
-}
 
-// ==========================================
-// MODO AUTÓNOMO LOCAL: ALMACENAMIENTO RESILIENTE
-// ==========================================
-const LOCAL_USERS_KEY = 'cai_local_users';
-const LOCAL_GUESTS_KEY = 'cai_local_guests';
-const LOCAL_NOTICIAS_KEY = 'cai_local_noticias';
-
-const DEFAULT_USERS: Usuario[] = [
-  {
-    id: 'user-admin',
-    cedula: 'V-00000000',
-    nombre: 'Administrador',
-    apellido: 'Sistema',
-    email: 'admin@cai.local',
-    rol: 'ADMINISTRADOR',
-    cargo: 'Superintendente de Seguridad & Control',
-    departamento: 'Seguridad Integral',
-    bloqueado: false,
-    registroCompletado: true,
-  },
-  {
-    id: 'user-carlos',
-    cedula: 'V-12345678',
-    nombre: 'Carlos',
-    apellido: 'Rodríguez',
-    email: 'carlos@cai.local',
-    rol: 'EMPLEADO',
-    cargo: 'Analista de Operaciones',
-    departamento: 'Operaciones',
-    telefonoMovil: '0414-1234567',
-    bloqueado: false,
-    registroCompletado: true,
-  },
-  {
-    id: 'user-maria',
-    cedula: 'V-23456789',
-    nombre: 'María',
-    apellido: 'Fernández',
-    email: 'maria@cai.local',
-    rol: 'EMPLEADO',
-    cargo: 'Supervisora de Calidad',
-    departamento: 'Control de Calidad',
-    telefonoMovil: '0412-9876543',
-    bloqueado: false,
-    registroCompletado: true,
-  },
-  {
-    id: 'user-juan',
-    cedula: 'V-34567890',
-    nombre: 'Juan',
-    apellido: 'Guardia',
-    email: 'seguridad@cai.local',
-    rol: 'SEGURIDAD',
-    cargo: 'Oficial de Control de Acceso',
-    departamento: 'Seguridad de Planta',
-    telefonoMovil: '0416-5554321',
-    bloqueado: false,
-    registroCompletado: true,
-  },
-];
-
-const DEFAULT_GUESTS: Invitado[] = [
-  {
-    id: 'guest-1',
-    cedula: 'V-19876543',
-    nombre: 'Mariana',
-    apellido: 'Gómez',
-    empresa: 'Servicios de Redes C.A.',
-    placa: 'AB123CD',
-    telefono: '0414-9988776',
-    motivo: 'Mantenimiento de Servidores',
-    empleadoId: 'user-maria',
-    createdAt: new Date().toISOString(),
-  },
-];
-
-const DEFAULT_NOTICIAS: Noticia[] = [
-  {
-    id: 'not-1',
-    titulo: 'Mantenimiento preventivo en torniquetes y garita norte',
-    contenido: 'Se informa que el viernes a partir de las 18:00 se realizará calibración en las lectoras ópticas de acceso. Todos los accesos se redirigirán por garita principal.',
-    createdAt: new Date().toISOString(),
-  },
-  {
-    id: 'not-2',
-    titulo: 'Protocolo de registro anticipado de visitantes',
-    contenido: 'Recordamos al personal que todas las visitas externas deben ser registradas previamente en el módulo de Visitas para agilizar el ingreso con el personal de seguridad.',
-    createdAt: new Date().toISOString(),
-  },
-];
-
-function getStoredUsers(): Usuario[] {
-  if (typeof window === 'undefined') return DEFAULT_USERS;
-  try {
-    const raw = localStorage.getItem(LOCAL_USERS_KEY);
-    if (!raw) {
-      localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(DEFAULT_USERS));
-      return DEFAULT_USERS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) && parsed.length > 0 ? parsed : DEFAULT_USERS;
-  } catch {
-    return DEFAULT_USERS;
+  if (res.status === 401) {
+    clearSessionAndNotifyUnauthorized();
+    throw new Error('Sesión vencida o no autorizada. Por favor inicie sesión nuevamente.');
   }
-}
 
-function saveStoredUser(newUser: Usuario): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const current = getStoredUsers();
-    const idx = current.findIndex((u) => u.cedula === newUser.cedula);
-    if (idx >= 0) {
-      current[idx] = { ...current[idx], ...newUser };
-    } else {
-      current.push(newUser);
+  if (!res.ok) {
+    const { message, code } = await parseErrorMessage(res, fallbackError);
+    if (res.status === 403 && code === 'CAMBIO_CLAVE_REQUERIDO' && typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent('cai:must-change-password'));
     }
-    localStorage.setItem(LOCAL_USERS_KEY, JSON.stringify(current));
-  } catch {}
-}
-
-function getStoredGuests(): Invitado[] {
-  if (typeof window === 'undefined') return DEFAULT_GUESTS;
-  try {
-    const raw = localStorage.getItem(LOCAL_GUESTS_KEY);
-    if (!raw) {
-      localStorage.setItem(LOCAL_GUESTS_KEY, JSON.stringify(DEFAULT_GUESTS));
-      return DEFAULT_GUESTS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_GUESTS;
-  } catch {
-    return DEFAULT_GUESTS;
+    throw new Error(message);
   }
+
+  return res.json() as Promise<T>;
 }
 
-function saveStoredGuest(newGuest: Invitado): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const current = getStoredGuests();
-    const idx = current.findIndex((g) => g.cedula === newGuest.cedula);
-    if (idx >= 0) {
-      current[idx] = { ...current[idx], ...newGuest };
-    } else {
-      current.unshift(newGuest);
-    }
-    localStorage.setItem(LOCAL_GUESTS_KEY, JSON.stringify(current));
-  } catch {}
+function normalizeGuest(raw: any): Invitado {
+  const anfitrion = raw.anfitrion || raw.empleado;
+  return {
+    ...raw,
+    anfitrionId: raw.anfitrionId || raw.empleadoId || anfitrion?.id || '',
+    anfitrion: anfitrion
+      ? {
+          id: anfitrion.id,
+          nombre: anfitrion.nombre,
+          apellido: anfitrion.apellido,
+          cedula: anfitrion.cedula,
+        }
+      : undefined,
+  };
 }
 
-function getStoredNoticias(): Noticia[] {
-  if (typeof window === 'undefined') return DEFAULT_NOTICIAS;
-  try {
-    const raw = localStorage.getItem(LOCAL_NOTICIAS_KEY);
-    if (!raw) {
-      localStorage.setItem(LOCAL_NOTICIAS_KEY, JSON.stringify(DEFAULT_NOTICIAS));
-      return DEFAULT_NOTICIAS;
-    }
-    const parsed = JSON.parse(raw);
-    return Array.isArray(parsed) ? parsed : DEFAULT_NOTICIAS;
-  } catch {
-    return DEFAULT_NOTICIAS;
-  }
-}
-
-function saveStoredNoticia(item: Noticia): void {
-  if (typeof window === 'undefined') return;
-  try {
-    const current = getStoredNoticias();
-    current.unshift(item);
-    localStorage.setItem(LOCAL_NOTICIAS_KEY, JSON.stringify(current));
-  } catch {}
+export interface RegisterAccessResult {
+  confirmed: boolean;
+  queuedOffline?: boolean;
+  pendingItem?: OfflineMovementItem;
+  registro?: HistorialRegistro;
 }
 
 export const api = {
-  getToken(): string | null {
-    return localStorage.getItem('cai_token');
-  },
-
-  getHeaders(): HeadersInit {
-    const token = this.getToken();
-    return {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    };
-  },
-
-  // Auth real (Fase 0: Honestidad - sin fallbacks demo falsos)
-  async login(identifier: string, password: string) {
-    const res = await fetch(`${getApiBase()}/auth/login`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ identifier, password }),
+  // Salud real del servidor y base de datos
+  async checkHealth(): Promise<{ status: string; database?: string; latencyMs?: string; uptimeSeconds?: number }> {
+    const API_URL = getBaseApiUrl();
+    const res = await fetch(`${API_URL}/health`, {
+      method: 'GET',
+      signal: AbortSignal.timeout(4000),
     });
+    if (!res.ok) {
+      throw new Error('Servidor o base de datos no disponible');
+    }
+    return res.json();
+  },
+
+  // Autenticación estricta contra el backend (LoginDto: { identifier, password })
+  async login(identificador: string, password: string): Promise<{ access_token: string; user: Usuario }> {
+    const API_URL = getBaseApiUrl();
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ identifier: identificador.trim(), password }),
+      });
+    } catch {
+      throw new Error('No se pudo conectar con el servidor de autenticación.');
+    }
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Credenciales inválidas o usuario no registrado');
+      const { message } = await parseErrorMessage(res, 'Credenciales inválidas o acceso denegado.');
+      throw new Error(message);
     }
 
     const data = await res.json();
-    localStorage.setItem('cai_token', data.accessToken);
+    if (!data?.access_token || !data?.user) {
+      throw new Error('Respuesta de autenticación inválida del servidor.');
+    }
+
+    localStorage.setItem('cai_token', data.access_token);
     localStorage.setItem('cai_user', JSON.stringify(data.user));
-    return { success: true, user: data.user, token: data.accessToken };
+    return data;
   },
 
-  logout() {
+  // Cambio obligatorio o voluntario de contraseña
+  async changePassword(currentPassword: string, newPassword: string): Promise<{ message: string; user: Usuario }> {
+    const data = await apiFetch<{ message: string; user: Usuario }>(
+      '/auth/change-password',
+      {
+        method: 'POST',
+        body: JSON.stringify({ currentPassword, newPassword }),
+      },
+      'Error al actualizar la contraseña.',
+    );
+
+    const saved = localStorage.getItem('cai_user');
+    const existing = saved ? JSON.parse(saved) : {};
+    const mergedUser: Usuario = { ...existing, ...data.user, debeCambiarClave: false };
+    localStorage.setItem('cai_user', JSON.stringify(mergedUser));
+
+    return { message: data.message, user: mergedUser };
+  },
+
+  async logout(): Promise<void> {
+    const token = localStorage.getItem('cai_token');
+    if (token) {
+      try {
+        const API_URL = getBaseApiUrl();
+        await fetch(`${API_URL}/auth/logout`, {
+          method: 'POST',
+          headers: getAuthHeaders(false),
+        });
+      } catch {
+        // Ignorar fallo de red al cerrar sesión localmente
+      }
+    }
     localStorage.removeItem('cai_token');
     localStorage.removeItem('cai_user');
   },
 
-  getCurrentUser(): Usuario | null {
-    const token = this.getToken();
-    const stored = localStorage.getItem('cai_user');
-    if (!token || !stored) return null;
-    try {
-      return JSON.parse(stored);
-    } catch {
-      return null;
-    }
-  },
-
-  // Paridad sistema original: Verificación de Pre-registro por cédula
-  async checkPreRegistro(cedula: string): Promise<{
-    preregistrado: boolean;
-    completado: boolean;
-    cedula: string;
-    nombre: string;
-    apellido: string;
-    email: string;
-    cargo?: string;
-    departamento?: string;
-  }> {
-    const res = await fetch(`${getApiBase()}/auth/check-preregistro/${encodeURIComponent(cedula.trim())}`);
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Cédula no pre-registrada por la administración');
-    }
-    return await res.json();
-  },
-
-  // Paridad sistema original: Auto-registro del empleado
-  async completeRegistro(data: {
-    cedula: string;
-    password: string;
-    email?: string;
-    cargo?: string;
-    departamento?: string;
-    telefonoMovil?: string;
-    telefonoFijo?: string;
-  }) {
-    const res = await fetch(`${getApiBase()}/auth/complete-registro`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(data),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al completar auto-registro');
-    }
-
-    const resData = await res.json();
-    localStorage.setItem('cai_token', resData.accessToken);
-    localStorage.setItem('cai_user', JSON.stringify(resData.user));
-    return { success: true, user: resData.user, token: resData.accessToken };
-  },
-
   // Perfil del usuario autenticado
   async getProfile(): Promise<Usuario> {
-    const res = await fetch(`${getApiBase()}/auth/profile`, {
-      headers: this.getHeaders(),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al obtener perfil');
-    }
-
-    const user = await res.json();
-    localStorage.setItem('cai_user', JSON.stringify(user));
-    return user;
+    const data = await apiFetch<Usuario>('/auth/profile', { method: 'GET' }, 'Error al obtener perfil');
+    localStorage.setItem('cai_user', JSON.stringify(data));
+    return data;
   },
 
-  // Paridad sistema original: Modificar mi propio perfil
-  async updateProfile(data: {
-    nombre?: string;
-    apellido?: string;
-    email?: string;
+  async updateProfile(profileData: {
     cargo?: string;
     departamento?: string;
     telefonoMovil?: string;
     telefonoFijo?: string;
+    email?: string;
+    fotoUrl?: string;
     currentPassword?: string;
     newPassword?: string;
   }): Promise<Usuario> {
-    const res = await fetch(`${getApiBase()}/auth/profile`, {
-      method: 'PATCH',
-      headers: this.getHeaders(),
-      body: JSON.stringify(data),
+    const updated = await apiFetch<Usuario>(
+      '/auth/profile',
+      {
+        method: 'PATCH',
+        body: JSON.stringify(profileData),
+      },
+      'Error al actualizar perfil',
+    );
+    const saved = localStorage.getItem('cai_user');
+    const current = saved ? JSON.parse(saved) : {};
+    const merged = { ...current, ...updated };
+    localStorage.setItem('cai_user', JSON.stringify(merged));
+    return merged;
+  },
+
+  // Estadísticas del Dashboard (Solo ADMINISTRADOR)
+  async getStats(): Promise<StatsSummary> {
+    const raw = await apiFetch<any>('/historial/stats', { method: 'GET' }, 'Error al obtener estadísticas');
+    return {
+      totalRegistros: raw.totalRegistros ?? raw.totalHoy ?? 0,
+      entradasHoy: raw.entradasHoy ?? 0,
+      salidasHoy: raw.salidasHoy ?? 0,
+      dentroAhora: raw.dentroAhora ?? raw.dentroEstimado ?? raw.personasDentroAproximado ?? 0,
+    };
+  },
+
+  // Lista de evacuación / personas dentro (ADMINISTRADOR y SEGURIDAD)
+  async getEvacuationList(): Promise<{
+    totalPersonasDentro: number;
+    generadoEn: string;
+    personasDentro: Array<{
+      historialId: string;
+      horaEntrada: string;
+      observacion?: string;
+      tipoPersona: 'USUARIO' | 'INVITADO';
+      id: string;
+      cedula: string;
+      nombre: string;
+      apellido: string;
+      detalle: string;
+    }>;
+  }> {
+    const raw = await apiFetch<any>('/historial/dentro', { method: 'GET' }, 'Error al obtener lista de personas en planta');
+    const list: any[] = Array.isArray(raw) ? raw : raw?.personasDentro || [];
+    const mapped = list.map((item) => {
+      if (item.horaEntrada && item.tipoPersona) {
+        return item;
+      }
+      const parts = String(item.nombre || '').trim().split(' ');
+      const nombre = parts[0] || '';
+      const apellido = parts.slice(1).join(' ');
+      const isGuest = String(item.tipo || '').includes('VISITANTE');
+      return {
+        historialId: item.historialId || item.id,
+        horaEntrada: item.horaIngreso || item.horaEntrada || new Date().toISOString(),
+        observacion: item.observacion,
+        tipoPersona: (isGuest ? 'INVITADO' : 'USUARIO') as 'USUARIO' | 'INVITADO',
+        id: item.id,
+        cedula: item.cedula,
+        nombre,
+        apellido,
+        detalle: item.empresa || item.tipo || '',
+      };
     });
 
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al actualizar perfil');
-    }
-
-    const updated = await res.json();
-    localStorage.setItem('cai_user', JSON.stringify(updated));
-    return updated;
-  },
-
-  // Garita: Check-in / Check-out real con resiliencia local
-  async registerAccess(targetId: string, isGuest: boolean, tipo: 'ENTRADA' | 'SALIDA', observacion?: string) {
-    try {
-      const res = await fetch(`${getApiBase()}/access/${tipo === 'ENTRADA' ? 'check-in' : 'check-out'}`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify({ targetId, isGuest, observacion }),
-      });
-
-      if (res.ok) {
-        playChime(tipo === 'ENTRADA' ? 'success' : 'exit');
-        return await res.json();
-      }
-    } catch {
-      // Modo Local Autónomo: registrar movimiento localmente
-      playChime(tipo === 'ENTRADA' ? 'success' : 'exit');
-      return { success: true, localMode: true, tipo, timestamp: new Date().toISOString() };
-    }
-
-    playChime(tipo === 'ENTRADA' ? 'success' : 'exit');
-    return { success: true, localMode: true, tipo, timestamp: new Date().toISOString() };
-  },
-
-  // Búsqueda rápida de persona en Garita por cédula contra PostgreSQL o Almacenamiento Local
-  async lookupPersona(query: string): Promise<PersonaLookup | null> {
-    const q = query.trim();
-    if (!q) return null;
-
-    try {
-      const res = await fetch(`${getApiBase()}/access/lookup/${encodeURIComponent(q)}`, {
-        headers: this.getHeaders(),
-      });
-
-      if (res.status === 404) {
-        return null;
-      }
-
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {
-      // Modo Local Autónomo: consultar catálogo local
-    }
-
-    const clean = q.replace(/^[VEJGPvejgp]-?/, '').toLowerCase();
-    const localUsers = getStoredUsers();
-    const foundUser = localUsers.find((u) => u.cedula.replace(/\D/g, '') === clean || u.cedula.toLowerCase() === q.toLowerCase());
-
-    if (foundUser) {
-      return {
-        id: foundUser.id,
-        nombre: foundUser.nombre,
-        apellido: foundUser.apellido,
-        cedula: foundUser.cedula,
-        isGuest: false,
-        rol: foundUser.rol,
-        empresa: 'Corporación CAI',
-        fotoUrl: foundUser.fotoUrl,
-        estadoSeguridad: foundUser.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
-        motivoBloqueo: foundUser.motivoBloqueo,
-        estaDentro: false,
-      };
-    }
-
-    const localGuests = getStoredGuests();
-    const foundGuest = localGuests.find((g) => g.cedula.replace(/\D/g, '') === clean || g.cedula.toLowerCase() === q.toLowerCase());
-
-    if (foundGuest) {
-      return {
-        id: foundGuest.id,
-        nombre: foundGuest.nombre,
-        apellido: foundGuest.apellido,
-        cedula: foundGuest.cedula,
-        isGuest: true,
-        empresa: foundGuest.empresa || 'Visitante Externo',
-        estadoSeguridad: foundGuest.bloqueado ? 'BLOQUEADO' : 'AUTORIZADO',
-        motivoBloqueo: foundGuest.motivoBloqueo,
-        estaDentro: false,
-      };
-    }
-
-    return null;
-  },
-
-  // Lista de evacuación para brigadistas y emergencias
-  async getEvacuationList(): Promise<Array<{
-    id: string;
-    nombre: string;
-    cedula: string;
-    tipo: string;
-    empresa: string;
-    horaIngreso: string;
-    fotoUrl?: string;
-  }>> {
-    try {
-      const res = await fetch(`${getApiBase()}/historial/dentro`, {
-        headers: this.getHeaders(),
-      });
-
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {}
-
-    return [
-      { id: 'ev-1', nombre: 'Carlos Rodríguez', cedula: 'V-12345678', tipo: 'EMPLEADO', empresa: 'Corporación CAI', horaIngreso: '07:45 AM' },
-      { id: 'ev-2', nombre: 'Mariana Gómez', cedula: 'V-19876543', tipo: 'VISITANTE', empresa: 'Servicios de Redes C.A.', horaIngreso: '09:12 AM' },
-    ];
-  },
-
-  // Stats / Aforo en vivo
-  async getStats(): Promise<StatsResponse> {
-    try {
-      const res = await fetch(`${getApiBase()}/historial/stats`, {
-        headers: this.getHeaders(),
-      });
-
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {}
-
-    const users = getStoredUsers();
     return {
-      personasDentroAproximado: 3,
-      entradasHoy: 5,
-      salidasHoy: 2,
-      ultimosMovimientos: [
-        {
-          id: 'mov-1',
-          timestamp: new Date().toISOString(),
-          tipo: 'ENTRADA',
-          usuario: users[1] || users[0],
-          observacion: 'Acceso por Garita Principal',
-        },
-      ],
+      totalPersonasDentro: mapped.length,
+      generadoEn: new Date().toISOString(),
+      personasDentro: mapped,
     };
   },
 
-  // Directorio de Usuarios
-  async getUsers(params?: { search?: string; rol?: string }): Promise<{ total: number; data: Usuario[] }> {
-    try {
-      const url = buildUrl('/users');
-      if (params?.search) url.searchParams.set('search', params.search);
-      if (params?.rol) url.searchParams.set('rol', params.rol);
-
-      const res = await fetch(url.toString(), {
-        headers: this.getHeaders(),
-        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(3000) : undefined,
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result && Array.isArray(result.data) && result.data.length > 0) {
-          localStorage.setItem('cai_local_users', JSON.stringify(result.data));
-          return result;
-        }
-      }
-    } catch {}
-
-    let list = getStoredUsers();
-    if (params?.search) {
-      const s = params.search.toLowerCase();
-      list = list.filter((u) =>
-        u.nombre.toLowerCase().includes(s) ||
-        u.apellido.toLowerCase().includes(s) ||
-        u.cedula.toLowerCase().includes(s)
-      );
-    }
-    if (params?.rol) {
-      list = list.filter((u) => u.rol === params.rol);
-    }
-    return { total: list.length, data: list };
+  // Descargar Acta Oficial de Evacuación en CSV (Solo ADMINISTRADOR)
+  async downloadEvacuationCsv(): Promise<void> {
+    const acta = await apiFetch<any>(
+      '/historial/evacuacion/acta',
+      { method: 'GET' },
+      'No se pudo generar el acta de evacuación',
+    );
+    const personas: any[] = acta?.personas || [];
+    const headers = ['ID', 'Nombre Completo', 'Cédula', 'Categoría', 'Empresa', 'Hora Ingreso'];
+    const rows = personas.map((p) => [
+      p.id,
+      `"${String(p.nombre || '').replace(/"/g, '""')}"`,
+      p.cedula,
+      p.tipo,
+      `"${String(p.empresa || '').replace(/"/g, '""')}"`,
+      new Date(p.horaIngreso).toLocaleString('es-VE'),
+    ]);
+    const csv = '\uFEFF' + [headers.join(','), ...rows.map((r) => r.join(','))].join('\r\n');
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `acta_evacuacion_cai_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
   },
 
-  async createUser(data: Partial<Usuario> & { password?: string }): Promise<Usuario> {
+  // Historial general (Solo ADMINISTRADOR)
+  async getHistorial(params?: {
+    tipo?: string;
+    search?: string;
+    desde?: string;
+    hasta?: string;
+  }): Promise<{ data: HistorialRegistro[]; total: number }> {
+    const q = new URLSearchParams({ take: '100' });
+    if (params?.tipo) q.set('tipo', params.tipo);
+    if (params?.search) q.set('search', params.search);
+    if (params?.desde) q.set('startDate', params.desde);
+    if (params?.hasta) q.set('endDate', params.hasta);
+
+    return apiFetch<{ data: HistorialRegistro[]; total: number }>(
+      `/historial?${q.toString()}`,
+      { method: 'GET' },
+      'Error al consultar la bitácora de accesos',
+    );
+  },
+
+  // Exportar Bitácora CSV desde el servidor (Solo ADMINISTRADOR)
+  async downloadHistorialCsv(params?: {
+    tipo?: string;
+    search?: string;
+    desde?: string;
+    hasta?: string;
+  }): Promise<void> {
+    const API_URL = getBaseApiUrl();
+    const q = new URLSearchParams();
+    if (params?.tipo) q.set('tipo', params.tipo);
+    if (params?.search) q.set('search', params.search);
+    if (params?.desde) q.set('startDate', params.desde);
+    if (params?.hasta) q.set('endDate', params.hasta);
+
+    let res: Response;
     try {
-      const res = await fetch(`${getApiBase()}/users`, {
+      res = await fetch(`${API_URL}/historial/export/csv?${q.toString()}`, {
+        headers: getAuthHeaders(false),
+      });
+    } catch {
+      throw new Error('Error de red al exportar bitácora CSV.');
+    }
+
+    if (res.status === 401) {
+      clearSessionAndNotifyUnauthorized();
+      throw new Error('Sesión vencida. Inicie sesión nuevamente.');
+    }
+
+    if (!res.ok) {
+      const { message } = await parseErrorMessage(res, 'Error exportando bitácora CSV');
+      throw new Error(message);
+    }
+
+    const blob = await res.blob();
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `bitacora_cai_${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  },
+
+  // Editar nota/observación en la bitácora (Solo ADMINISTRADOR)
+  async updateHistorialObservacion(id: string, observacion: string): Promise<HistorialRegistro> {
+    return apiFetch<HistorialRegistro>(
+      `/historial/${id}/observacion`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ observacion }),
+      },
+      'Error al actualizar observación en bitácora',
+    );
+  },
+
+  // Búsqueda inteligente por Cédula o Token QR firmado CAI2 (ADMINISTRADOR y SEGURIDAD)
+  async lookupPersona(identifierOrQr: string): Promise<PersonaLookup> {
+    const clean = identifierOrQr.trim();
+    const raw = await apiFetch<any>(
+      `/access/lookup/${encodeURIComponent(clean)}`,
+      { method: 'GET' },
+      `No se encontró ninguna persona ni pase válido para: ${clean}`,
+    );
+
+    const isGuest = raw.tipoPersona === 'INVITADO' || raw.isGuest === true;
+    const ultimoMovimiento = raw.ultimoMovimiento ?? raw.ultimoRegistro ?? null;
+    const estaDentro = Boolean(raw.estaDentro);
+
+    return {
+      id: raw.id,
+      cedula: raw.cedula,
+      nombre: raw.nombre,
+      apellido: raw.apellido,
+      tipoPersona: isGuest ? 'INVITADO' : 'USUARIO',
+      rol: raw.rol,
+      empresa: raw.empresa,
+      motivo: raw.motivo,
+      placa: raw.placa,
+      fotoUrl: raw.fotoUrl,
+      bloqueado: Boolean(raw.bloqueado),
+      motivoBloqueo: raw.motivoBloqueo,
+      anfitrion:
+        raw.anfitrion ||
+        (raw.empleadoAnfitrion
+          ? { id: '', nombre: String(raw.empleadoAnfitrion), apellido: '' }
+          : undefined),
+      ultimoMovimiento,
+      estaDentro,
+      accionSugerida: estaDentro ? 'SALIDA' : 'ENTRADA',
+      paseFirmado: Boolean(raw.paseFirmado),
+      visitaId: raw.visitaId,
+      vigenciaHasta: raw.vigenciaHasta,
+    };
+  },
+
+  // Registrar Entrada o Salida en Garita con soporte de cola offline real (IndexedDB)
+  async registerAccess(
+    targetId: string,
+    isGuest: boolean,
+    tipo: TipoAcceso,
+    observacion?: string,
+    options?: {
+      qrToken?: string;
+      personaNombre?: string;
+      personaCedula?: string;
+      allowOfflineQueue?: boolean;
+    },
+  ): Promise<RegisterAccessResult> {
+    const API_URL = getBaseApiUrl();
+    const endpoint = tipo === 'ENTRADA' ? 'check-in' : 'check-out';
+    const bodyPayload: Record<string, unknown> = {
+      targetId,
+      isGuest,
+      ...(observacion ? { observacion } : {}),
+      ...(options?.qrToken ? { qrToken: options.qrToken } : {}),
+    };
+
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/access/${endpoint}`, {
         method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
+        headers: getAuthHeaders(true),
+        body: JSON.stringify(bodyPayload),
       });
-
-      if (res.ok) {
-        const created = await res.json();
-        saveStoredUser(created);
-        return created;
+    } catch {
+      if (options?.allowOfflineQueue) {
+        const pendingItem = await offlineQueue.enqueue({
+          targetId,
+          personaNombre: options.personaNombre || 'Persona',
+          personaCedula: options.personaCedula || targetId,
+          isGuest,
+          tipo,
+          observacion,
+          qrToken: options.qrToken,
+        });
+        return {
+          confirmed: false,
+          queuedOffline: true,
+          pendingItem,
+        };
       }
-    } catch {}
-
-    const newUser: Usuario = {
-      id: `usr-${Date.now()}`,
-      cedula: data.cedula || 'V-00000000',
-      nombre: data.nombre || 'Nuevo',
-      apellido: data.apellido || 'Usuario',
-      email: data.email || `${data.cedula}@cai.local`,
-      rol: data.rol || 'EMPLEADO',
-      cargo: data.cargo,
-      departamento: data.departamento,
-      telefonoMovil: data.telefonoMovil,
-      telefonoFijo: data.telefonoFijo,
-      bloqueado: false,
-      registroCompletado: true,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredUser(newUser);
-    return newUser;
-  },
-
-  // Invitados / Visitas
-  async getInvitados(search?: string): Promise<{ total: number; data: Invitado[] }> {
-    try {
-      const url = buildUrl('/invitados');
-      if (search) url.searchParams.set('search', search);
-
-      const res = await fetch(url.toString(), {
-        headers: this.getHeaders(),
-        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(3000) : undefined,
-      });
-      if (res.ok) {
-        const result = await res.json();
-        if (result && Array.isArray(result.data)) {
-          localStorage.setItem('cai_local_guests', JSON.stringify(result.data));
-          return result;
-        }
-      }
-    } catch {}
-
-    let list = getStoredGuests();
-    if (search) {
-      const s = search.toLowerCase();
-      list = list.filter((g) =>
-        g.nombre.toLowerCase().includes(s) ||
-        g.apellido.toLowerCase().includes(s) ||
-        g.cedula.toLowerCase().includes(s)
-      );
+      throw new Error('Error de red: No se pudo conectar con el servidor para registrar el movimiento.');
     }
-    return { total: list.length, data: list };
+
+    if (res.status === 401) {
+      clearSessionAndNotifyUnauthorized();
+      throw new Error('Sesión vencida. Inicie sesión nuevamente.');
+    }
+
+    if (!res.ok) {
+      const { message, code } = await parseErrorMessage(res, 'El servidor rechazó el registro de acceso.');
+      if (res.status === 403 && code === 'CAMBIO_CLAVE_REQUERIDO' && typeof window !== 'undefined') {
+        window.dispatchEvent(new CustomEvent('cai:must-change-password'));
+      }
+      throw new Error(message);
+    }
+
+    const registro = (await res.json()) as HistorialRegistro;
+    return {
+      confirmed: true,
+      registro,
+    };
   },
 
-  async createInvitado(data: {
+  // Sincronizar movimientos pendientes en IndexedDB con el backend
+  async syncOfflineQueue(): Promise<{ synced: number; rejected: number; remaining: number }> {
+    const API_URL = getBaseApiUrl();
+    const allItems = await offlineQueue.listAll();
+    const pendingItems = allItems.filter((item) => item.status === 'PENDING');
+
+    let synced = 0;
+    let rejected = 0;
+
+    for (const item of pendingItems) {
+      const endpoint = item.tipo === 'ENTRADA' ? 'check-in' : 'check-out';
+      const bodyPayload: Record<string, unknown> = {
+        targetId: item.targetId,
+        isGuest: item.isGuest,
+        observacion: item.observacion
+          ? `${item.observacion} [Sincronizado de cola offline ${item.queuedAt}]`
+          : `[Sincronizado de cola offline ${item.queuedAt}]`,
+        ...(item.qrToken ? { qrToken: item.qrToken } : {}),
+      };
+
+      try {
+        const res = await fetch(`${API_URL}/access/${endpoint}`, {
+          method: 'POST',
+          headers: getAuthHeaders(true),
+          body: JSON.stringify(bodyPayload),
+        });
+
+        if (res.status === 401) {
+          clearSessionAndNotifyUnauthorized();
+          break;
+        }
+
+        if (res.ok) {
+          await offlineQueue.remove(item.id);
+          synced++;
+        } else if (res.status >= 400 && res.status < 500) {
+          const { message } = await parseErrorMessage(res, `Rechazado por el servidor (HTTP ${res.status})`);
+          await offlineQueue.markRejected(item.id, message);
+          rejected++;
+        }
+      } catch {
+        // Si la red sigue caída, detenemos el ciclo hasta el próximo reintento
+        break;
+      }
+    }
+
+    const updated = await offlineQueue.listAll();
+    return {
+      synced,
+      rejected,
+      remaining: updated.filter((i) => i.status === 'PENDING').length,
+    };
+  },
+
+  // Usuarios (Solo ADMINISTRADOR)
+  async getUsers(params?: { search?: string; rol?: string }): Promise<{ data: Usuario[]; total: number }> {
+    const q = new URLSearchParams({ take: '100' });
+    if (params?.search) q.set('search', params.search);
+    if (params?.rol) q.set('rol', params.rol);
+
+    return apiFetch<{ data: Usuario[]; total: number }>(
+      `/users?${q.toString()}`,
+      { method: 'GET' },
+      'Error al obtener directorio de usuarios',
+    );
+  },
+
+  async createUser(userData: Partial<Usuario> & { password?: string }): Promise<Usuario> {
+    return apiFetch<Usuario>(
+      '/users',
+      {
+        method: 'POST',
+        body: JSON.stringify(userData),
+      },
+      'Error al crear usuario',
+    );
+  },
+
+  async toggleBloqueoUsuario(id: string, bloqueado: boolean, motivoBloqueo?: string): Promise<Usuario> {
+    return apiFetch<Usuario>(
+      `/users/${id}/bloquear`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ bloqueado, motivoBloqueo }),
+      },
+      'Error cambiando estado de bloqueo del usuario',
+    );
+  },
+
+  // Invitados - Listado general (Solo ADMINISTRADOR)
+  async getInvitados(search?: string): Promise<{ data: Invitado[]; total: number }> {
+    const q = new URLSearchParams({ take: '100' });
+    if (search) q.set('search', search);
+
+    const res = await apiFetch<{ data: any[]; total: number }>(
+      `/invitados?${q.toString()}`,
+      { method: 'GET' },
+      'Error al obtener listado de visitantes',
+    );
+    return {
+      total: res.total ?? (res.data?.length || 0),
+      data: (res.data || []).map(normalizeGuest),
+    };
+  },
+
+  // Invitados propios del propietario/empleado (EMPLEADO y ADMINISTRADOR)
+  async getMisInvitados(search?: string): Promise<{ data: Invitado[]; total: number }> {
+    const raw = await apiFetch<any>(
+      '/invitados/mis-invitados',
+      { method: 'GET' },
+      'Error al obtener sus invitados registrados',
+    );
+    const list: any[] = Array.isArray(raw) ? raw : raw?.data || [];
+    const normalized = list.map(normalizeGuest);
+    const filtered = search?.trim()
+      ? normalized.filter((inv) => {
+          const term = search.trim().toLowerCase();
+          return (
+            inv.cedula.toLowerCase().includes(term) ||
+            inv.nombre.toLowerCase().includes(term) ||
+            inv.apellido.toLowerCase().includes(term) ||
+            (inv.empresa || '').toLowerCase().includes(term)
+          );
+        })
+      : normalized;
+
+    return {
+      total: filtered.length,
+      data: filtered,
+    };
+  },
+
+  async createInvitado(invData: {
     cedula: string;
     nombre: string;
     apellido: string;
     empresa?: string;
-    placa?: string;
-    telefono?: string;
     motivo?: string;
-    empleadoId?: string;
+    placa?: string;
+    anfitrionId?: string;
+    vigenciaDias?: number;
   }): Promise<Invitado> {
-    try {
-      const res = await fetch(`${getApiBase()}/invitados`, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      });
-
-      if (res.ok) {
-        const created = await res.json();
-        saveStoredGuest(created);
-        return created;
-      }
-    } catch {}
-
-    const newGuest: Invitado = {
-      id: `gst-${Date.now()}`,
-      cedula: data.cedula,
-      nombre: data.nombre,
-      apellido: data.apellido,
-      empresa: data.empresa || 'Particular',
-      placa: data.placa,
-      telefono: data.telefono,
-      motivo: data.motivo,
-      empleadoId: data.empleadoId || 'user-0',
-      createdAt: new Date().toISOString(),
+    const payload: Record<string, unknown> = {
+      cedula: invData.cedula,
+      nombre: invData.nombre,
+      apellido: invData.apellido,
+      ...(invData.empresa ? { empresa: invData.empresa } : {}),
+      ...(invData.motivo ? { motivo: invData.motivo } : {}),
+      ...(invData.placa ? { placa: invData.placa } : {}),
+      ...(invData.anfitrionId ? { empleadoId: invData.anfitrionId } : {}),
+      ...(invData.vigenciaDias ? { vigenciaDias: invData.vigenciaDias } : {}),
     };
-    saveStoredGuest(newGuest);
-    return newGuest;
+
+    const raw = await apiFetch<any>(
+      '/invitados',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'Error al registrar invitado',
+    );
+    return normalizeGuest(raw);
   },
 
-  // Historial y Bitácora
-  async getHistorial(filter?: { tipo?: string; search?: string }): Promise<{ total: number; data: HistorialRegistro[] }> {
-    try {
-      const url = buildUrl('/historial');
-      if (filter?.tipo) url.searchParams.set('tipo', filter.tipo);
-      if (filter?.search) url.searchParams.set('search', filter.search);
+  async updateInvitado(
+    id: string,
+    invData: {
+      cedula?: string;
+      nombre?: string;
+      apellido?: string;
+      empresa?: string;
+      motivo?: string;
+      placa?: string;
+      vigenciaDias?: number;
+    },
+  ): Promise<Invitado> {
+    const payload: Record<string, unknown> = {
+      ...(invData.cedula ? { cedula: invData.cedula } : {}),
+      ...(invData.nombre ? { nombre: invData.nombre } : {}),
+      ...(invData.apellido ? { apellido: invData.apellido } : {}),
+      ...(invData.empresa !== undefined ? { empresa: invData.empresa } : {}),
+      ...(invData.motivo !== undefined ? { motivo: invData.motivo } : {}),
+      ...(invData.placa !== undefined ? { placa: invData.placa } : {}),
+      ...(invData.vigenciaDias ? { vigenciaDias: invData.vigenciaDias } : {}),
+    };
 
-      const res = await fetch(url.toString(), {
-        headers: this.getHeaders(),
-        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(3000) : undefined,
-      });
-      if (res.ok) {
-        return await res.json();
-      }
-    } catch {}
-
-    const users = getStoredUsers();
-    const guests = getStoredGuests();
-    const data: HistorialRegistro[] = [
+    const raw = await apiFetch<any>(
+      `/invitados/${id}`,
       {
-        id: 'hist-1',
-        timestamp: new Date(Date.now() - 3600000 * 2).toISOString(),
-        tipo: 'ENTRADA',
-        usuario: users[1],
-        observacion: 'Ingreso turno de mañana',
+        method: 'PATCH',
+        body: JSON.stringify(payload),
       },
-      {
-        id: 'hist-2',
-        timestamp: new Date(Date.now() - 3600000).toISOString(),
-        tipo: 'ENTRADA',
-        invitado: guests[0],
-        observacion: 'Reunión con Gerencia',
-      },
-    ];
-    return { total: data.length, data };
+      'Error al actualizar invitado',
+    );
+    return normalizeGuest(raw);
   },
 
-  // Noticias / Cartelera
+  async deleteInvitado(id: string): Promise<{ message?: string; eliminado?: boolean }> {
+    return apiFetch<{ message?: string; eliminado?: boolean }>(
+      `/invitados/${id}`,
+      {
+        method: 'DELETE',
+      },
+      'Error al eliminar o dar de baja al invitado',
+    );
+  },
+
+  async emitirPaseQr(invitadoId: string, vigenciaDias = 1): Promise<PaseQrInfo> {
+    const raw = await apiFetch<any>(
+      `/invitados/${invitadoId}/pase`,
+      {
+        method: 'POST',
+        body: JSON.stringify({ vigenciaDias }),
+      },
+      'Error al emitir pase QR firmado en el servidor',
+    );
+    return (raw?.paseQr || raw) as PaseQrInfo;
+  },
+
+  async toggleBloqueoInvitado(id: string, bloqueado: boolean, motivoBloqueo?: string): Promise<Invitado> {
+    const raw = await apiFetch<any>(
+      `/invitados/${id}/bloquear`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ bloqueado, motivoBloqueo }),
+      },
+      'Error cambiando estado de bloqueo del visitante',
+    );
+    return normalizeGuest(raw);
+  },
+
+  // Cartelera de Noticias (Lectura: ADMINISTRADOR y EMPLEADO; Escritura: Solo ADMINISTRADOR)
   async getNoticias(): Promise<Noticia[]> {
-    try {
-      const res = await fetch(`${getApiBase()}/noticias`, {
-        headers: this.getHeaders(),
-        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(3000) : undefined,
-      });
-      if (res.ok) {
-        const items = await res.json();
-        if (Array.isArray(items) && items.length > 0) {
-          localStorage.setItem('cai_local_noticias', JSON.stringify(items));
-          return items;
-        }
-      }
-    } catch {}
-
-    return getStoredNoticias();
+    const json = await apiFetch<{ data?: Noticia[] } | Noticia[]>(
+      '/noticias?take=20',
+      { method: 'GET' },
+      'Error al obtener comunicados de la cartelera',
+    );
+    return Array.isArray(json) ? json : json.data || [];
   },
 
-  async createNoticia(data: { titulo: string; contenido: string; imagenUrl?: string }): Promise<Noticia> {
-    try {
-      const res = await fetch(`${getApiBase()}/noticias`, {
+  async createNoticia(noticiaData: { titulo: string; contenido: string; imagenUrl?: string }): Promise<Noticia> {
+    return apiFetch<Noticia>(
+      '/noticias',
+      {
         method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(data),
-      });
-
-      if (res.ok) {
-        const item = await res.json();
-        saveStoredNoticia(item);
-        return item;
-      }
-    } catch {}
-
-    const newNotice: Noticia = {
-      id: `not-${Date.now()}`,
-      titulo: data.titulo,
-      contenido: data.contenido,
-      imagenUrl: data.imagenUrl,
-      createdAt: new Date().toISOString(),
-    };
-    saveStoredNoticia(newNotice);
-    return newNotice;
+        body: JSON.stringify(noticiaData),
+      },
+      'Error al publicar comunicado en la cartelera',
+    );
   },
 
-  // Exportar Historial a CSV
-  async downloadHistorialCsv(filter?: { tipo?: string; search?: string; startDate?: string; endDate?: string }): Promise<void> {
-    const url = buildUrl('/historial/export/csv');
-    if (filter?.tipo) url.searchParams.set('tipo', filter.tipo);
-    if (filter?.search) url.searchParams.set('search', filter.search);
-    if (filter?.startDate) url.searchParams.set('startDate', filter.startDate);
-    if (filter?.endDate) url.searchParams.set('endDate', filter.endDate);
-
-    const res = await fetch(url.toString(), { headers: this.getHeaders() });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al exportar historial a CSV');
-    }
-
-    const blob = await res.blob();
-    const downloadUrl = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = downloadUrl;
-    a.download = `historial_accesos_${new Date().toISOString().split('T')[0]}.csv`;
-    document.body.appendChild(a);
-    a.click();
-    window.URL.revokeObjectURL(downloadUrl);
-    document.body.removeChild(a);
+  async updateNoticia(
+    id: string,
+    noticiaData: { titulo?: string; contenido?: string; imagenUrl?: string },
+  ): Promise<Noticia> {
+    return apiFetch<Noticia>(
+      `/noticias/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(noticiaData),
+      },
+      'Error al editar comunicado en la cartelera',
+    );
   },
 
-  // Acta Oficial de Evacuación (Roll Call)
-  async getActaEvacuacion(): Promise<any> {
-    const res = await fetch(`${getApiBase()}/historial/evacuacion/acta`, {
-      headers: this.getHeaders(),
-    });
-
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al generar acta de evacuación');
-    }
-
-    return await res.json();
-  },
-
-  // Auditoría Integral del Sistema (Solo Administrador)
-  async getAuditoria(filter?: { entidad?: string; accion?: string; skip?: number; take?: number }): Promise<any> {
-    const url = buildUrl('/auditoria');
-    if (filter?.entidad) url.searchParams.set('entidad', filter.entidad);
-    if (filter?.accion) url.searchParams.set('accion', filter.accion);
-    if (filter?.skip !== undefined) url.searchParams.set('skip', String(filter.skip));
-    if (filter?.take !== undefined) url.searchParams.set('take', String(filter.take));
-
-    const res = await fetch(url.toString(), { headers: this.getHeaders() });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({}));
-      throw new Error(err.message || 'Error al consultar auditoría del sistema');
-    }
-
-    return await res.json();
-  },
-
-  // Healthcheck de conexión en vivo
-  async checkHealth(): Promise<boolean> {
-    try {
-      const res = await fetch(`${getApiBase()}/health`, {
-        method: 'GET',
-        headers: this.getHeaders(),
-        signal: typeof AbortSignal !== 'undefined' && 'timeout' in AbortSignal ? AbortSignal.timeout(4000) : undefined,
-      });
-      return res.ok;
-    } catch {
-      return false;
-    }
+  async deleteNoticia(id: string): Promise<{ message: string }> {
+    return apiFetch<{ message: string }>(
+      `/noticias/${id}`,
+      {
+        method: 'DELETE',
+      },
+      'Error al eliminar comunicado de la cartelera',
+    );
   },
 };
-

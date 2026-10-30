@@ -1,17 +1,16 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Search, X, Check } from 'lucide-react';
+import { UserPlus, Search, X, Check, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import type { Usuario, Role } from '../types';
-
 
 export const UsersView: React.FC = () => {
   const [users, setUsers] = useState<Usuario[]>([]);
   const [search, setSearch] = useState('');
   const [rolFilter, setRolFilter] = useState<string>('');
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  // Formulario nuevo usuario
   const [form, setForm] = useState({
     cedula: '',
     nombre: '',
@@ -23,9 +22,12 @@ export const UsersView: React.FC = () => {
 
   const loadUsers = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await api.getUsers({ search, rol: rolFilter || undefined });
       setUsers(res.data);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al cargar el directorio de usuarios.');
     } finally {
       setLoading(false);
     }
@@ -39,10 +41,15 @@ export const UsersView: React.FC = () => {
     e.preventDefault();
     if (!form.cedula || !form.nombre || !form.apellido || !form.email) return;
 
-    await api.createUser(form);
-    setIsModalOpen(false);
-    setForm({ cedula: '', nombre: '', apellido: '', email: '', password: '', rol: 'EMPLEADO' });
-    loadUsers();
+    setErrorMsg(null);
+    try {
+      await api.createUser(form);
+      setIsModalOpen(false);
+      setForm({ cedula: '', nombre: '', apellido: '', email: '', password: '', rol: 'EMPLEADO' });
+      await loadUsers();
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al registrar nuevo usuario.');
+    }
   };
 
   return (
@@ -62,6 +69,26 @@ export const UsersView: React.FC = () => {
           <span>Nuevo Usuario</span>
         </button>
       </div>
+
+      {errorMsg && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '18px',
+            color: 'var(--rose)',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          <AlertCircle size={18} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {/* Barra de Filtros */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>
@@ -86,7 +113,7 @@ export const UsersView: React.FC = () => {
           <option value="">Todos los Roles</option>
           <option value="ADMINISTRADOR">Administrador</option>
           <option value="SEGURIDAD">Seguridad (Garita)</option>
-          <option value="EMPLEADO">Empleado</option>
+          <option value="EMPLEADO">Empleado / Propietario</option>
         </select>
       </div>
 
@@ -171,8 +198,8 @@ export const UsersView: React.FC = () => {
                         u.rol === 'ADMINISTRADOR'
                           ? 'badge-admin'
                           : u.rol === 'SEGURIDAD'
-                          ? 'badge-seguridad'
-                          : 'badge-empleado'
+                            ? 'badge-seguridad'
+                            : 'badge-empleado'
                       }`}
                     >
                       {u.rol}
@@ -227,13 +254,10 @@ export const UsersView: React.FC = () => {
             onClick={(e) => e.stopPropagation()}
           >
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
-              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>Registrar Nuevo Usuario</h3>
-              <button
-                type="button"
-                className="btn-ghost"
-                style={{ padding: '6px' }}
-                onClick={() => setIsModalOpen(false)}
-              >
+              <h3 style={{ fontSize: '1.25rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                Registrar Nuevo Usuario
+              </h3>
+              <button type="button" className="btn-ghost" style={{ padding: '6px' }} onClick={() => setIsModalOpen(false)}>
                 <X size={18} />
               </button>
             </div>
@@ -301,6 +325,7 @@ export const UsersView: React.FC = () => {
                 <input
                   type="password"
                   required
+                  minLength={6}
                   className="form-input"
                   placeholder="Mínimo 6 caracteres"
                   value={form.password}
@@ -317,8 +342,8 @@ export const UsersView: React.FC = () => {
                   value={form.rol}
                   onChange={(e) => setForm({ ...form, rol: e.target.value as Role })}
                 >
-                  <option value="EMPLEADO">Empleado (Solo consulta y registro de visitas)</option>
-                  <option value="SEGURIDAD">Seguridad (Operador de Garita)</option>
+                  <option value="EMPLEADO">Propietario / Empleado (Cartelera y sus propios invitados)</option>
+                  <option value="SEGURIDAD">Vigilante / Seguridad (Escáner Garita y personas dentro)</option>
                   <option value="ADMINISTRADOR">Administrador (Acceso Total)</option>
                 </select>
               </div>

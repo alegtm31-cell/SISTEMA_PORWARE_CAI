@@ -1,468 +1,631 @@
 import React, { useEffect, useState } from 'react';
 import {
+  Activity,
   LogIn,
   LogOut,
   Users,
-  ShieldCheck,
-  RotateCw,
-  MoreVertical,
-  Activity,
-  Maximize2,
+  Shield,
+  ArrowUpRight,
+  CheckCircle2,
+  AlertTriangle,
+  ScanLine,
   Server,
-  PieChart,
-  HardDrive,
-  Cpu,
+  RefreshCw,
+  FileSpreadsheet,
+  Siren,
+  Database,
 } from 'lucide-react';
 import { api } from '../services/api';
-import type { StatsResponse, HistorialRegistro } from '../types';
+import type { StatsSummary, HistorialRegistro } from '../types';
+import type { NavTab } from '../components/Sidebar';
 
-export const DashboardView: React.FC = () => {
-  const [stats, setStats] = useState<StatsResponse | null>(null);
-  const [historial, setHistorial] = useState<HistorialRegistro[]>([]);
+interface DashboardViewProps {
+  onNavigate: (tab: NavTab) => void;
+}
+
+export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
+  const [stats, setStats] = useState<StatsSummary>({
+    totalRegistros: 0,
+    entradasHoy: 0,
+    salidasHoy: 0,
+    dentroAhora: 0,
+  });
+  const [recentLogs, setRecentLogs] = useState<HistorialRegistro[]>([]);
+  const [healthInfo, setHealthInfo] = useState<{
+    status: string;
+    database?: string;
+    latencyMs?: string;
+    uptimeSeconds?: number;
+  } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [lastRefreshed, setLastRefreshed] = useState<string>(new Date().toLocaleTimeString('es-ES'));
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
-  const fetchData = async () => {
+  // Modal de Evacuación / Lista de Personas en Planta
+  const [showEvacuationModal, setShowEvacuationModal] = useState(false);
+  const [evacuationLoading, setEvacuationLoading] = useState(false);
+  const [personasDentro, setPersonasDentro] = useState<any[]>([]);
+
+  const loadData = async () => {
+    setErrorMsg(null);
     try {
-      setLoading(true);
-      const [statsData, histData] = await Promise.all([
-        api.getStats().catch(() => null),
-        api.getHistorial().catch(() => ({ total: 0, data: [] })),
+      const [s, h, health] = await Promise.all([
+        api.getStats(),
+        api.getHistorial(),
+        api.checkHealth().catch(() => ({ status: 'offline' })),
       ]);
-
-      if (statsData) setStats(statsData);
-      if (histData && histData.data) {
-        setHistorial(histData.data.slice(0, 6));
-      }
-      setLastRefreshed(new Date().toLocaleTimeString('es-ES'));
+      setStats(s);
+      setRecentLogs(h.data.slice(0, 8));
+      setHealthInfo(health);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al cargar las métricas del panel.');
     } finally {
       setLoading(false);
     }
   };
 
+  const handleOpenEvacuation = async () => {
+    setShowEvacuationModal(true);
+    setEvacuationLoading(true);
+    try {
+      const res = await api.getEvacuationList();
+      setPersonasDentro(res.personasDentro || []);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al cargar la lista de personas en planta.');
+    } finally {
+      setEvacuationLoading(false);
+    }
+  };
+
   useEffect(() => {
-    fetchData();
-    const interval = setInterval(fetchData, 15000);
+    loadData();
+    const interval = setInterval(loadData, 15000);
     return () => clearInterval(interval);
   }, []);
 
-  const totalCapacidad = 150;
-  const personasDentro = stats?.personasDentroAproximado || 0;
-  const ocupacionPorcentaje = Math.min(100, Math.round((personasDentro / totalCapacidad) * 100));
-  const entradasHoy = stats?.entradasHoy || 0;
-  const salidasHoy = stats?.salidasHoy || 0;
+  const formatUptime = (seconds?: number) => {
+    if (typeof seconds !== 'number' || Number.isNaN(seconds)) return 'N/D';
+    const d = Math.floor(seconds / 86400);
+    const h = Math.floor((seconds % 86400) / 3600);
+    const m = Math.floor((seconds % 3600) / 60);
+    if (d > 0) return `${d}d ${h}h ${m}m`;
+    if (h > 0) return `${h}h ${m}m`;
+    return `${m} min`;
+  };
 
-  // Cálculo para gráfico donut de accesos
-  const totalMovs = (entradasHoy + salidasHoy) || 1;
-  const pctEntradas = Math.round((entradasHoy / totalMovs) * 100);
+  const totalHoy = stats.entradasHoy + stats.salidasHoy || 1;
+  const pctEntradas = Math.round((stats.entradasHoy / totalHoy) * 100);
   const pctSalidas = 100 - pctEntradas;
 
   return (
-    <div className="animate-fade-in" style={{ width: '100%', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-      
-      {/* KPI CARDS (RESUMEN EJECUTIVO SUPERIOR) */}
+    <div className="animate-fade-in" style={{ width: '100%' }}>
+      {/* Barra superior de acciones rápidas */}
       <div
         style={{
-          display: 'grid',
-          gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))',
-          gap: '12px',
+          display: 'flex',
+          justifyContent: 'space-between',
+          alignItems: 'center',
+          marginBottom: '14px',
+          flexWrap: 'wrap',
+          gap: '10px',
         }}
       >
-        {/* Card: Aforo Actual */}
-        <div className="widget-card" style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Aforo en Tiempo Real
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+          <span
+            style={{
+              width: '10px',
+              height: '10px',
+              borderRadius: '50%',
+              background: healthInfo?.status === 'ok' ? 'var(--emerald)' : 'var(--rose)',
+              boxShadow:
+                healthInfo?.status === 'ok'
+                  ? '0 0 10px var(--emerald)'
+                  : '0 0 10px var(--rose)',
+            }}
+          />
+          <span style={{ fontSize: '0.82rem', fontWeight: 700, color: 'var(--text-main)' }}>
+            PANEL DE CONTROL ADMINISTRATIVO • MÉTRICAS EN TIEMPO REAL
+          </span>
+        </div>
+
+        <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
+          <button
+            onClick={loadData}
+            className="btn-ghost"
+            style={{ padding: '6px 12px', fontSize: '0.76rem' }}
+          >
+            <RefreshCw size={13} />
+            <span>Actualizar</span>
+          </button>
+          <button
+            onClick={handleOpenEvacuation}
+            className="btn-ghost"
+            style={{
+              padding: '6px 12px',
+              fontSize: '0.76rem',
+              borderColor: 'rgba(245, 158, 11, 0.45)',
+              color: 'var(--amber)',
+              background: 'rgba(245, 158, 11, 0.08)',
+            }}
+          >
+            <Siren size={14} />
+            <span>Personas en Planta / Evacuación ({stats.dentroAhora})</span>
+          </button>
+          <button
+            onClick={() => onNavigate('garita')}
+            className="btn-primary"
+            style={{ padding: '6px 14px', fontSize: '0.76rem' }}
+          >
+            <ScanLine size={14} />
+            <span>Ir a Consola de Garita</span>
+          </button>
+        </div>
+      </div>
+
+      {errorMsg && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '8px',
+            padding: '12px 16px',
+            marginBottom: '16px',
+            color: 'var(--rose)',
+            fontSize: '0.84rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '8px',
+          }}
+        >
+          <AlertTriangle size={16} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
+
+      {/* FILA 1: 4 Tarjetas KPI reales */}
+      <div
+        className="dashboard-kpi-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(4, minmax(0, 1fr))',
+          gap: '14px',
+          marginBottom: '14px',
+        }}
+      >
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <Users size={14} color="var(--cyan)" />
+              Personas en Planta Ahora
             </span>
-            <Users size={15} color="var(--primary)" />
+            <span className="badge badge-admin">EN VIVO</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-            <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--text-main)' }}>
-              {personasDentro}
-            </span>
-            <span style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-              / {totalCapacidad} max ({ocupacionPorcentaje}%)
-            </span>
-          </div>
-          <div style={{ height: '4px', background: 'var(--chart-track)', borderRadius: '2px', marginTop: '8px', overflow: 'hidden' }}>
-            <div
-              style={{
-                height: '100%',
-                width: `${ocupacionPorcentaje}%`,
-                background: ocupacionPorcentaje > 85 ? 'var(--rose)' : 'var(--primary)',
-                transition: 'width 0.4s ease',
-              }}
-            />
+          <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+                {loading ? '—' : stats.dentroAhora}
+              </div>
+              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                Ocupación activa verificada
+              </div>
+            </div>
+            <div style={{ textAlign: 'right' }}>
+              <span style={{ fontSize: '0.72rem', color: 'var(--emerald)', fontWeight: 700 }}>
+                Control Anti-Passback
+              </span>
+            </div>
           </div>
         </div>
 
-        {/* Card: Entradas Hoy */}
-        <div className="widget-card" style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Check-ins (Entradas)
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <LogIn size={14} color="var(--emerald)" />
+              Entradas Registradas Hoy
             </span>
-            <LogIn size={15} color="var(--emerald)" />
+            <span className="badge badge-entrada">CHECK-IN</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-            <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--emerald)' }}>
-              {entradasHoy}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>accesos validados hoy</span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px' }}>
-            Puertas y torniquetes autorizados
+          <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--emerald)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+                {loading ? '—' : stats.entradasHoy}
+              </div>
+              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                Ingresos confirmados hoy
+              </div>
+            </div>
+            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+              {pctEntradas}% del flujo
+            </div>
           </div>
         </div>
 
-        {/* Card: Salidas Hoy */}
-        <div className="widget-card" style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Check-outs (Salidas)
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <LogOut size={14} color="var(--amber)" />
+              Salidas Registradas Hoy
             </span>
-            <LogOut size={15} color="var(--cyan)" />
+            <span className="badge badge-salida">CHECK-OUT</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', marginTop: '6px' }}>
-            <span style={{ fontSize: '22px', fontWeight: 800, color: 'var(--cyan)' }}>
-              {salidasHoy}
-            </span>
-            <span style={{ fontSize: '11px', color: 'var(--text-muted)' }}>egresos registrados</span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px' }}>
-            Anti-passback liberado
+          <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--amber)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+                {loading ? '—' : stats.salidasHoy}
+              </div>
+              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                Egresos confirmados hoy
+              </div>
+            </div>
+            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+              {pctSalidas}% del flujo
+            </div>
           </div>
         </div>
 
-        {/* Card: Estado del Cluster */}
-        <div className="widget-card" style={{ padding: '12px 16px' }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase' }}>
-              Seguridad & Firmware
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <Activity size={14} color="var(--purple)" />
+              Total Histórico Bitácora
             </span>
-            <ShieldCheck size={15} color="var(--emerald)" />
+            <span className="badge badge-seguridad">AUDITORÍA</span>
           </div>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '6px', marginTop: '6px' }}>
-            <span style={{ fontSize: '15px', fontWeight: 700, color: 'var(--text-main)' }}>
-              CAI-OS v2.4.2
-            </span>
-            <span style={{ fontSize: '10px', color: 'var(--emerald)', fontWeight: 600 }}>ACTIVO</span>
-          </div>
-          <div style={{ fontSize: '11px', color: 'var(--text-dim)', marginTop: '8px' }}>
-            Actualizado: {lastRefreshed}
+          <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
+            <div>
+              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+                {loading ? '—' : stats.totalRegistros}
+              </div>
+              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
+                Eventos registrados en PostgreSQL
+              </div>
+            </div>
+            <div style={{ fontSize: '0.72rem', color: 'var(--cyan)', fontWeight: 700 }}>
+              100% Trazable
+            </div>
           </div>
         </div>
       </div>
 
-      {/* CUADRÍCULA DE WIDGETS ESTILO FORTINET */}
-      <div className="widgets-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: '14px' }}>
-        
-        {/* WIDGET 1: SYSTEM INFORMATION */}
-        <div className="widget-card">
-          <div className="widget-header">
-            <div className="widget-title-area">
-              <Server size={14} color="var(--primary)" />
-              <span className="widget-title">System Information</span>
-            </div>
-            <div className="widget-actions">
-              <button
-                type="button"
-                className="widget-action-btn"
-                title="Refrescar"
-                onClick={fetchData}
-              >
-                <RotateCw size={11} className={loading ? 'animate-spin' : ''} />
-              </button>
-              <button type="button" className="widget-action-btn" title="Opciones">
-                <MoreVertical size={11} />
-              </button>
-            </div>
+      {/* FILA 2: Estado real del Backend + Distribución de Flujo + Accesos Rápidos */}
+      <div
+        className="dashboard-widgets-grid"
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, minmax(0, 1fr))',
+          gap: '14px',
+          marginBottom: '14px',
+        }}
+      >
+        {/* WIDGET 1: Estado Real del Servidor y Base de Datos */}
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <Server size={14} color="var(--emerald)" />
+              Estado del Backend & Base de Datos
+            </span>
           </div>
-          <div className="widget-body">
-            <div className="info-grid">
-              <div className="info-row">
-                <span className="info-label">Host Name</span>
-                <span className="info-val" style={{ fontFamily: 'var(--font-mono)' }}>PORWARE-CAI-01</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Firmware</span>
-                <span className="info-val" style={{ fontFamily: 'var(--font-mono)' }}>v2.4.2-build068</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">System Time</span>
-                <span className="info-val" style={{ fontFamily: 'var(--font-mono)' }}>{lastRefreshed} GMT-4</span>
-              </div>
-              <div className="info-row">
-                <span className="info-label">Uptime</span>
-                <span className="info-val" style={{ fontFamily: 'var(--font-mono)' }}>18d 04h 45m</span>
-              </div>
+          <div className="forti-card-body">
+            <div className="kv-row">
+              <span className="kv-label">Estado API</span>
+              <span className="kv-value" style={{ color: healthInfo?.status === 'ok' ? 'var(--emerald)' : 'var(--rose)' }}>
+                {healthInfo?.status === 'ok' ? 'OPERATIVO (OK)' : 'DESCONECTADO'}
+              </span>
             </div>
-
-            <div style={{ marginTop: '14px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                  <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <Cpu size={12} />
-                    <span>CPU Utilization</span>
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>14%</span>
-                </div>
-                <div style={{ height: '6px', background: 'var(--chart-track)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: '14%', height: '100%', background: 'var(--primary)' }} />
-                </div>
-              </div>
-
-              <div>
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', marginBottom: '3px' }}>
-                  <span style={{ color: 'var(--text-muted)', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <HardDrive size={12} />
-                    <span>Memory Usage (RAM)</span>
-                  </span>
-                  <span style={{ fontFamily: 'var(--font-mono)', fontWeight: 600 }}>38%</span>
-                </div>
-                <div style={{ height: '6px', background: 'var(--chart-track)', borderRadius: '3px', overflow: 'hidden' }}>
-                  <div style={{ width: '38%', height: '100%', background: 'var(--emerald)' }} />
-                </div>
-              </div>
+            <div className="kv-row">
+              <span className="kv-label">Motor PostgreSQL</span>
+              <span className="kv-value" style={{ color: 'var(--cyan)' }}>
+                {healthInfo?.database || 'N/D'}
+              </span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-label">Latencia SQL</span>
+              <span className="kv-value">{healthInfo?.latencyMs || 'N/D'}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-label">Tiempo Activo (Uptime)</span>
+              <span className="kv-value">{formatUptime(healthInfo?.uptimeSeconds)}</span>
+            </div>
+            <div className="kv-row">
+              <span className="kv-label">Firma Pases QR</span>
+              <span className="kv-value" style={{ color: 'var(--emerald)' }}>HMAC-SHA256 (Backend)</span>
             </div>
           </div>
         </div>
 
-        {/* WIDGET 2: DISTRIBUCIÓN DE ACCESOS (DONUT CHART SVG) */}
-        <div className="widget-card">
-          <div className="widget-header">
-            <div className="widget-title-area">
-              <PieChart size={14} color="var(--primary)" />
-              <span className="widget-title">Flujo de Accesos (Hoy)</span>
-            </div>
-            <div className="widget-actions">
-              <button type="button" className="widget-action-btn" title="Refrescar" onClick={fetchData}>
-                <RotateCw size={11} />
-              </button>
-              <button type="button" className="widget-action-btn" title="Opciones">
-                <MoreVertical size={11} />
-              </button>
-            </div>
+        {/* WIDGET 2: Distribución Real de Movimientos del Día */}
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <Database size={14} color="var(--cyan)" />
+              Balance Operativo del Día
+            </span>
           </div>
-          <div className="widget-body">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '18px' }}>
-              {/* Gráfico Donut SVG */}
-              <div style={{ position: 'relative', width: '110px', height: '110px', flexShrink: 0 }}>
-                <svg width="110" height="110" viewBox="0 0 42 42">
-                  <circle cx="21" cy="21" r="15.915" fill="transparent" stroke="var(--chart-track)" strokeWidth="5" />
-                  {/* Entradas */}
-                  <circle
-                    cx="21"
-                    cy="21"
-                    r="15.915"
-                    fill="transparent"
-                    stroke="var(--emerald)"
-                    strokeWidth="5"
-                    strokeDasharray={`${pctEntradas} ${100 - pctEntradas}`}
-                    strokeDashoffset="25"
-                  />
-                  {/* Salidas */}
-                  <circle
-                    cx="21"
-                    cy="21"
-                    r="15.915"
-                    fill="transparent"
-                    stroke="var(--primary)"
-                    strokeWidth="5"
-                    strokeDasharray={`${pctSalidas} ${100 - pctSalidas}`}
-                    strokeDashoffset={`${25 - pctEntradas}`}
-                  />
-                </svg>
+          <div className="forti-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '14px' }}>
+            <div>
+              <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.78rem', marginBottom: '6px' }}>
+                <span style={{ color: 'var(--emerald)', fontWeight: 700 }}>Entradas ({stats.entradasHoy})</span>
+                <span style={{ color: 'var(--amber)', fontWeight: 700 }}>Salidas ({stats.salidasHoy})</span>
+              </div>
+              <div
+                style={{
+                  height: '12px',
+                  borderRadius: '999px',
+                  background: 'rgba(245, 158, 11, 0.25)',
+                  overflow: 'hidden',
+                  display: 'flex',
+                }}
+              >
                 <div
                   style={{
-                    position: 'absolute',
-                    top: '50%',
-                    left: '50%',
-                    transform: 'translate(-50%, -50%)',
-                    textAlign: 'center',
+                    width: `${pctEntradas}%`,
+                    background: 'var(--emerald)',
+                    transition: 'width 0.3s ease',
                   }}
+                />
+              </div>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Movimientos Hoy</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+                  {stats.entradasHoy + stats.salidasHoy}
+                </div>
+              </div>
+              <div style={{ padding: '10px', borderRadius: '6px', background: 'rgba(255,255,255,0.02)', border: '1px solid var(--border-subtle)' }}>
+                <div style={{ fontSize: '0.68rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>Permanencia Activa</div>
+                <div style={{ fontSize: '1.2rem', fontWeight: 800, color: 'var(--cyan)', fontFamily: 'var(--font-mono)' }}>
+                  {stats.dentroAhora}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        {/* WIDGET 3: Políticas Activas y Accesos Directos */}
+        <div className="forti-card">
+          <div className="forti-card-header">
+            <span className="forti-card-title">
+              <Shield size={14} color="var(--emerald)" />
+              Políticas de Seguridad Activas
+            </span>
+            <CheckCircle2 size={14} color="var(--emerald)" />
+          </div>
+          <div className="forti-card-body" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', gap: '10px' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+              <div>• Control Anti-Passback estricto en garita</div>
+              <div>• Pases QR con firma HMAC-SHA256 y vigencia en tabla Visita</div>
+              <div>• Bloqueo inmediato de personas vetadas (Lista Negra)</div>
+              <div>• Registro de autor en bitácora de auditoría</div>
+            </div>
+
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', marginTop: '6px' }}>
+              <button
+                onClick={() => onNavigate('invitados')}
+                className="btn-ghost"
+                style={{ flex: 1, padding: '6px 10px', fontSize: '0.74rem' }}
+              >
+                <span>Visitas</span>
+              </button>
+              <button
+                onClick={() => onNavigate('users')}
+                className="btn-ghost"
+                style={{ flex: 1, padding: '6px 10px', fontSize: '0.74rem' }}
+              >
+                <span>Usuarios</span>
+              </button>
+              <button
+                onClick={() => onNavigate('noticias')}
+                className="btn-ghost"
+                style={{ flex: 1, padding: '6px 10px', fontSize: '0.74rem' }}
+              >
+                <span>Cartelera</span>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* FILA 3: Tabla de Eventos de Acceso en Tiempo Real */}
+      <div className="forti-card">
+        <div className="forti-card-header">
+          <span className="forti-card-title">
+            <Activity size={14} color="var(--cyan)" />
+            Últimos Movimientos Registrados en Garita
+          </span>
+          <button
+            onClick={() => onNavigate('historial')}
+            className="btn-ghost"
+            style={{ padding: '4px 10px', fontSize: '0.72rem' }}
+          >
+            <span>Ver Bitácora Completa</span>
+            <ArrowUpRight size={13} />
+          </button>
+        </div>
+
+        <div style={{ overflowX: 'auto' }}>
+          <table className="forti-table">
+            <thead>
+              <tr>
+                <th>Estado / Acción</th>
+                <th>Hora Registro</th>
+                <th>Identificación (Cédula)</th>
+                <th>Nombre Completo</th>
+                <th>Clasificación</th>
+                <th>Observación de Garita</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)' }}>
+                    Consultando bitácora del servidor...
+                  </td>
+                </tr>
+              ) : recentLogs.length === 0 ? (
+                <tr>
+                  <td colSpan={6} style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)' }}>
+                    Sin movimientos registrados todavía.
+                  </td>
+                </tr>
+              ) : (
+                recentLogs.map((log) => {
+                  const persona = log.usuario || log.invitado;
+                  const isEntrada = log.tipo === 'ENTRADA';
+                  return (
+                    <tr key={log.id}>
+                      <td>
+                        <span className={`badge ${isEntrada ? 'badge-entrada' : 'badge-salida'}`}>
+                          {isEntrada ? <LogIn size={11} /> : <LogOut size={11} />}
+                          {log.tipo}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.76rem', color: 'var(--text-muted)' }}>
+                        {new Date(log.timestamp).toLocaleString('es-VE', {
+                          day: '2-digit',
+                          month: '2-digit',
+                          hour: '2-digit',
+                          minute: '2-digit',
+                          second: '2-digit',
+                        })}
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>
+                        {persona?.cedula || 'N/A'}
+                      </td>
+                      <td style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                        {persona ? `${persona.nombre} ${persona.apellido}` : 'Desconocido'}
+                      </td>
+                      <td>
+                        {log.invitado ? (
+                          <span className="badge badge-seguridad">
+                            VISITANTE ({log.invitado.empresa || 'Particular'})
+                          </span>
+                        ) : (
+                          <span className="badge badge-empleado">
+                            PERSONAL ({log.usuario?.rol})
+                          </span>
+                        )}
+                      </td>
+                      <td style={{ color: log.observacion ? 'var(--text-main)' : 'var(--text-dim)', fontSize: '0.76rem' }}>
+                        {log.observacion || '—'}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Modal de Emergencia / Lista de Evacuación en Planta */}
+      {showEvacuationModal && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(5, 8, 15, 0.85)',
+            backdropFilter: 'blur(8px)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 1000,
+            padding: '20px',
+          }}
+          onClick={() => setShowEvacuationModal(false)}
+        >
+          <div
+            className="glass-panel animate-fade-in"
+            style={{
+              width: '100%',
+              maxWidth: '780px',
+              maxHeight: '85vh',
+              display: 'flex',
+              flexDirection: 'column',
+              padding: '24px',
+              border: '1px solid rgba(245, 158, 11, 0.45)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                <Siren size={22} color="var(--amber)" />
+                <div>
+                  <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', margin: 0 }}>
+                    Reporte en Vivo: Personas Actualmente en Planta ({personasDentro.length})
+                  </h3>
+                  <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                    Listado nominal para protocolo de seguridad o evacuación inmediata.
+                  </p>
+                </div>
+              </div>
+
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button
+                  onClick={() => api.downloadEvacuationCsv()}
+                  className="btn-primary"
+                  style={{ padding: '7px 12px', fontSize: '0.78rem' }}
                 >
-                  <div style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-main)', lineHeight: 1.1 }}>
-                    {entradasHoy + salidasHoy}
-                  </div>
-                  <div style={{ fontSize: '9px', color: 'var(--text-muted)', textTransform: 'uppercase' }}>Total</div>
-                </div>
-              </div>
-
-              {/* Leyenda con datos reales */}
-              <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: '8px', fontSize: '12px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: 'var(--emerald)' }} />
-                    <span style={{ color: 'var(--text-muted)' }}>Entradas</span>
-                  </div>
-                  <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                    {entradasHoy} ({pctEntradas}%)
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: 'var(--primary)' }} />
-                    <span style={{ color: 'var(--text-muted)' }}>Salidas</span>
-                  </div>
-                  <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                    {salidasHoy} ({pctSalidas}%)
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <span style={{ width: '8px', height: '8px', borderRadius: '2px', background: 'var(--amber)' }} />
-                    <span style={{ color: 'var(--text-muted)' }}>En Edificio</span>
-                  </div>
-                  <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>
-                    {personasDentro} dentro
-                  </span>
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* WIDGET 3: INTERFACE & GATE CONTROLLER */}
-        <div className="widget-card">
-          <div className="widget-header">
-            <div className="widget-title-area">
-              <Activity size={14} color="var(--primary)" />
-              <span className="widget-title">Interface & Gate Controller</span>
-            </div>
-            <div className="widget-actions">
-              <button type="button" className="widget-action-btn" title="Refrescar" onClick={fetchData}>
-                <RotateCw size={11} />
-              </button>
-              <button type="button" className="widget-action-btn" title="Opciones">
-                <MoreVertical size={11} />
-              </button>
-            </div>
-          </div>
-          <div className="widget-body">
-            <div className="port-matrix">
-              <div className="port-box">
-                <span className="port-led active" />
-                <span className="port-name">WAN-1</span>
-                <span className="port-meta">1000M Full</span>
-              </div>
-              <div className="port-box">
-                <span className="port-led active" />
-                <span className="port-name">Torniquete A</span>
-                <span className="port-meta">PoE+ Online</span>
-              </div>
-              <div className="port-box">
-                <span className="port-led active" />
-                <span className="port-name">Torniquete B</span>
-                <span className="port-meta">PoE+ Online</span>
-              </div>
-              <div className="port-box">
-                <span className="port-led" />
-                <span className="port-name">Barrera Veh.</span>
-                <span className="port-meta">Standby</span>
+                  <FileSpreadsheet size={15} />
+                  <span>Descargar Acta CSV</span>
+                </button>
+                <button
+                  onClick={() => setShowEvacuationModal(false)}
+                  className="btn-ghost"
+                  style={{ padding: '7px 12px', fontSize: '0.78rem' }}
+                >
+                  Cerrar
+                </button>
               </div>
             </div>
 
-            <div style={{ marginTop: '12px', fontSize: '11.5px', color: 'var(--text-muted)', display: 'flex', justifyContent: 'space-between' }}>
-              <span>Anti-Passback: <strong style={{ color: 'var(--text-main)' }}>Serializable Strict</strong></span>
-              <span>Latencia: <strong style={{ color: 'var(--emerald)' }}>2.4 ms</strong></span>
-            </div>
-          </div>
-        </div>
-
-        {/* WIDGET 4: BITÁCORA DE EVENTOS EN TIEMPO REAL (COL-SPAN 2) */}
-        <div className="widget-card col-span-2">
-          <div className="widget-header">
-            <div className="widget-title-area">
-              <ShieldCheck size={14} color="var(--primary)" />
-              <span className="widget-title">Eventos Recientes de Acceso (Auditoría en Vivo)</span>
-            </div>
-            <div className="widget-actions">
-              <button type="button" className="widget-action-btn" title="Refrescar" onClick={fetchData}>
-                <RotateCw size={11} />
-              </button>
-              <button type="button" className="widget-action-btn" title="Pantalla completa">
-                <Maximize2 size={11} />
-              </button>
-            </div>
-          </div>
-          <div className="widget-body" style={{ padding: 0, overflowX: 'auto' }}>
-            {historial.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-muted)', fontSize: '13px' }}>
-                No hay movimientos registrados hoy en la bitácora.
-              </div>
-            ) : (
-              <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '12px' }}>
+            <div style={{ overflowY: 'auto', flex: 1, border: '1px solid var(--border-subtle)', borderRadius: '8px' }}>
+              <table className="forti-table">
                 <thead>
-                  <tr style={{ background: 'var(--bg-table-header)', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 600 }}>HORA</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 600 }}>IDENTIFICACIÓN</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 600 }}>USUARIO / VISITANTE</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 600 }}>MOVIMIENTO</th>
-                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 600 }}>DETALLE</th>
+                  <tr>
+                    <th>Cédula</th>
+                    <th>Nombre Completo</th>
+                    <th>Tipo</th>
+                    <th>Detalle / Empresa</th>
+                    <th>Hora Entrada</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {historial.map((reg) => {
-                    const isEntrada = reg.tipo === 'ENTRADA';
-                    const target = reg.usuario || reg.invitado;
-                    const nombreCompleto = target ? `${target.nombre} ${target.apellido || ''}` : 'Usuario del Sistema';
-                    const doc = target?.cedula || 'V-S/N';
-                    const horaFormatted = new Date(reg.timestamp).toLocaleTimeString('es-ES', {
-                      hour: '2-digit',
-                      minute: '2-digit',
-                      second: '2-digit',
-                    });
-
-                    return (
-                      <tr key={reg.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                        <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', color: 'var(--text-muted)' }}>
-                          {horaFormatted}
-                        </td>
-                        <td style={{ padding: '8px 12px', fontFamily: 'var(--font-mono)', fontWeight: 600 }}>
-                          {doc}
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <span style={{ fontWeight: 600, color: 'var(--text-main)' }}>{nombreCompleto}</span>
-                          {reg.invitado && (
-                            <span style={{ marginLeft: '6px', fontSize: '10px', color: 'var(--amber)', fontWeight: 600 }}>
-                              (VISITANTE)
-                            </span>
-                          )}
-                        </td>
-                        <td style={{ padding: '8px 12px' }}>
-                          <span
-                            style={{
-                              display: 'inline-flex',
-                              alignItems: 'center',
-                              gap: '4px',
-                              padding: '2px 8px',
-                              borderRadius: '3px',
-                              fontSize: '11px',
-                              fontWeight: 700,
-                              background: isEntrada ? 'rgba(16, 185, 129, 0.14)' : 'rgba(37, 99, 235, 0.14)',
-                              color: isEntrada ? 'var(--emerald)' : 'var(--primary)',
-                            }}
-                          >
-                            {isEntrada ? '✓ ENTRADA' : '➜ SALIDA'}
+                  {evacuationLoading ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-dim)' }}>
+                        Calculando ocupación activa...
+                      </td>
+                    </tr>
+                  ) : personasDentro.length === 0 ? (
+                    <tr>
+                      <td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-dim)' }}>
+                        No se registran personas dentro de las instalaciones en este momento.
+                      </td>
+                    </tr>
+                  ) : (
+                    personasDentro.map((p) => (
+                      <tr key={p.id}>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>{p.cedula}</td>
+                        <td style={{ fontWeight: 600 }}>{p.nombre} {p.apellido}</td>
+                        <td>
+                          <span className={`badge ${p.tipoPersona === 'INVITADO' ? 'badge-seguridad' : 'badge-empleado'}`}>
+                            {p.tipoPersona}
                           </span>
                         </td>
-                        <td style={{ padding: '8px 12px', color: 'var(--text-muted)', fontSize: '11.5px' }}>
-                          {reg.observacion || (isEntrada ? 'Check-in Torniquete A' : 'Check-out Garita Principal')}
+                        <td style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>{p.detalle}</td>
+                        <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.76rem' }}>
+                          {new Date(p.horaEntrada).toLocaleTimeString('es-VE')}
                         </td>
                       </tr>
-                    );
-                  })}
+                    ))
+                  )}
                 </tbody>
               </table>
-            )}
+            </div>
           </div>
         </div>
-
-      </div>
-
+      )}
     </div>
   );
 };

@@ -40,13 +40,15 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   onLogout,
   onOpenCartelera,
 }) => {
+  const isSeguridad = user?.rol === 'SEGURIDAD';
+  const isAdmin = user?.rol === 'ADMINISTRADOR';
+
   const currentSavedApi =
     localStorage.getItem('cai_custom_api_url') ||
-    ((import.meta as any).env?.VITE_API_URL || 'http://192.168.10.8:3000');
+    ((import.meta as any).env?.VITE_API_URL || '/api/v1');
   const [apiUrl, setApiUrl] = useState(currentSavedApi);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
-  // Edición de perfil (Paridad modificar_perfil.php del sistema original)
   const [editingProfile, setEditingProfile] = useState(false);
   const [profileForm, setProfileForm] = useState({
     cargo: user?.cargo || '',
@@ -86,7 +88,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleResetApi = () => {
     localStorage.removeItem('cai_custom_api_url');
-    setApiUrl((import.meta as any).env?.VITE_API_URL || 'http://192.168.10.8:3000');
+    setApiUrl((import.meta as any).env?.VITE_API_URL || '/api/v1');
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);
@@ -104,26 +106,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
         throw new Error('La nueva contraseña debe tener al menos 6 caracteres');
       }
 
-      await api.updateProfile({
-        cargo: profileForm.cargo.trim() || undefined,
-        departamento: profileForm.departamento.trim() || undefined,
-        telefonoMovil: profileForm.telefonoMovil.trim() || undefined,
-        telefonoFijo: profileForm.telefonoFijo.trim() || undefined,
-        email: profileForm.email.trim() || undefined,
-        currentPassword: profileForm.currentPassword || undefined,
-        newPassword: profileForm.newPassword || undefined,
-      });
+      if (isSeguridad) {
+        if (!profileForm.currentPassword || !profileForm.newPassword) {
+          throw new Error('Ingrese su contraseña actual y la nueva contraseña');
+        }
+        await api.changePassword(profileForm.currentPassword, profileForm.newPassword);
+      } else {
+        await api.updateProfile({
+          cargo: profileForm.cargo.trim() || undefined,
+          departamento: profileForm.departamento.trim() || undefined,
+          telefonoMovil: profileForm.telefonoMovil.trim() || undefined,
+          telefonoFijo: profileForm.telefonoFijo.trim() || undefined,
+          email: profileForm.email.trim() || undefined,
+          currentPassword: profileForm.currentPassword || undefined,
+          newPassword: profileForm.newPassword || undefined,
+        });
+      }
 
       setProfileMsg({
         type: 'success',
-        text: 'Perfil y preferencias actualizadas exitosamente en el servidor.',
+        text: 'Datos y credenciales actualizadas exitosamente en el servidor.',
       });
       setEditingProfile(false);
       setProfileForm((prev) => ({ ...prev, currentPassword: '', newPassword: '' }));
     } catch (err: any) {
       setProfileMsg({
         type: 'error',
-        text: err?.message || 'Error al guardar los cambios del perfil',
+        text: err?.message || 'Error al guardar los cambios',
       });
     } finally {
       setProfileSaving(false);
@@ -132,7 +141,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   return (
     <div style={{ maxWidth: '1000px', margin: '0 auto', paddingBottom: '60px' }}>
-      {/* Encabezado Principal de la Sección */}
+      {/* Encabezado Principal */}
       <div
         style={{
           display: 'flex',
@@ -168,11 +177,13 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 letterSpacing: '-0.02em',
               }}
             >
-              Ajustes y Configuración
+              Ajustes {isSeguridad ? 'de Garita' : 'y Configuración'}
             </h1>
           </div>
           <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', margin: 0 }}>
-            Personalice la apariencia visual del sistema, conectividad de red y credenciales de usuario.
+            {isSeguridad
+              ? 'Seleccione el tema visual de la consola y gestione su sesión.'
+              : 'Personalice la apariencia visual del sistema y gestione sus credenciales de usuario.'}
           </p>
         </div>
 
@@ -200,7 +211,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
       </div>
 
       <div style={{ display: 'flex', flexDirection: 'column', gap: '24px' }}>
-        {/* SECCIÓN 1: APARIENCIA Y TEMA */}
+        {/* SECCIÓN 1: APARIENCIA Y TEMA (Todos los roles) */}
         <section
           className="glass-panel"
           style={{
@@ -217,11 +228,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </h2>
           </div>
           <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
-            Seleccione el esquema de contraste visual que mejor se adapte a su entorno de iluminación en garita u oficina.
+            Seleccione el esquema de contraste visual que mejor se adapte a su entorno de iluminación.
           </p>
 
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '14px' }}>
-            {/* Opción Dark */}
             <button
               type="button"
               onClick={() => onSetTheme('dark')}
@@ -236,7 +246,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 color: themeMode === 'dark' ? 'var(--cyan)' : 'var(--text-main)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                transition: 'all 0.15s ease',
               }}
             >
               <div
@@ -261,7 +270,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {themeMode === 'dark' && <Check size={18} color="var(--cyan)" />}
             </button>
 
-            {/* Opción Light */}
             <button
               type="button"
               onClick={() => onSetTheme('light')}
@@ -276,7 +284,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 color: themeMode === 'light' ? 'var(--cyan)' : 'var(--text-main)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                transition: 'all 0.15s ease',
               }}
             >
               <div
@@ -301,7 +308,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               {themeMode === 'light' && <Check size={18} color="var(--cyan)" />}
             </button>
 
-            {/* Opción System */}
             <button
               type="button"
               onClick={() => onSetTheme('system')}
@@ -316,7 +322,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                 color: themeMode === 'system' ? 'var(--cyan)' : 'var(--text-main)',
                 cursor: 'pointer',
                 textAlign: 'left',
-                transition: 'all 0.15s ease',
               }}
             >
               <div
@@ -336,68 +341,67 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
               </div>
               <div style={{ flex: 1 }}>
                 <div style={{ fontWeight: 700, fontSize: '0.9rem' }}>Automático</div>
-                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>
-                  Sincronizado con el sistema operativo
-                </div>
+                <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>Sincronizado con el sistema</div>
               </div>
               {themeMode === 'system' && <Check size={18} color="var(--cyan)" />}
             </button>
           </div>
         </section>
 
-        {/* SECCIÓN 2: CONECTIVIDAD Y RED */}
-        <section
-          className="glass-panel"
-          style={{
-            padding: '24px',
-            background: 'var(--bg-surface)',
-            border: '1px solid var(--border-subtle)',
-            borderRadius: '16px',
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
-            <Wifi size={20} color="var(--cyan)" />
-            <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
-              Servidor API y Red Local
-            </h2>
-          </div>
-          <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
-            Configure la dirección URL o IP local del servidor backend de CAI para despliegues de garita o intranet.
-          </p>
+        {/* SECCIÓN 2: CONECTIVIDAD Y RED (Solo ADMINISTRADOR) */}
+        {isAdmin && (
+          <section
+            className="glass-panel"
+            style={{
+              padding: '24px',
+              background: 'var(--bg-surface)',
+              border: '1px solid var(--border-subtle)',
+              borderRadius: '16px',
+            }}
+          >
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
+              <Wifi size={20} color="var(--cyan)" />
+              <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
+                Servidor API y Red Local (Solo Administrador)
+              </h2>
+            </div>
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
+              Configure la dirección HTTPS del servidor backend de CAI para terminales de intranet.
+            </p>
 
-          <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
-            <input
-              type="text"
-              value={apiUrl}
-              onChange={(e) => setApiUrl(e.target.value)}
-              placeholder="http://192.168.10.8:3000 o https://cai.empresa.local"
-              className="input-field"
-              style={{ flex: 1, minWidth: '260px', padding: '10px 14px', fontSize: '0.88rem' }}
-            />
-            <button
-              type="button"
-              onClick={handleSaveApi}
-              className="btn-primary"
-              style={{ padding: '10px 18px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
-            >
-              <Check size={16} />
-              <span>{savedSuccess ? 'Guardado ✓' : 'Guardar y Reconectar'}</span>
-            </button>
-            <button
-              type="button"
-              onClick={handleResetApi}
-              className="btn-ghost"
-              style={{ padding: '10px 14px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
-              title="Restablecer a la dirección configurada en .env"
-            >
-              <RotateCcw size={15} />
-              <span>Por Defecto</span>
-            </button>
-          </div>
-        </section>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
+              <input
+                type="text"
+                value={apiUrl}
+                onChange={(e) => setApiUrl(e.target.value)}
+                placeholder="https://cai.empresa.local"
+                className="input-field"
+                style={{ flex: 1, minWidth: '260px', padding: '10px 14px', fontSize: '0.88rem' }}
+              />
+              <button
+                type="button"
+                onClick={handleSaveApi}
+                className="btn-primary"
+                style={{ padding: '10px 18px', fontSize: '0.85rem', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Check size={16} />
+                <span>{savedSuccess ? 'Guardado ✓' : 'Guardar y Reconectar'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleResetApi}
+                className="btn-ghost"
+                style={{ padding: '10px 14px', fontSize: '0.85rem', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <RotateCcw size={15} />
+                <span>Por Defecto</span>
+              </button>
+            </div>
+          </section>
+        )}
 
-        {/* SECCIÓN 3: PERFIL DE USUARIO Y SEGURIDAD */}
-        {user && (
+        {/* SECCIÓN 3: PERFIL DE USUARIO (Solo ADMINISTRADOR y EMPLEADO; SEGURIDAD tiene vista mínima) */}
+        {user && !isSeguridad && (
           <section
             className="glass-panel"
             style={{
@@ -477,7 +481,6 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             )}
 
             {!editingProfile ? (
-              /* Vista Informativa del Perfil */
               <div
                 style={{
                   display: 'grid',
@@ -542,27 +545,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
                     {user.departamento || 'No asignado'}
                   </div>
                 </div>
-
-                <div>
-                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600 }}>
-                    Teléfono Móvil
-                  </div>
-                  <div style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {user.telefonoMovil || 'No registrado'}
-                  </div>
-                </div>
-
-                <div>
-                  <div style={{ fontSize: '0.72rem', textTransform: 'uppercase', color: 'var(--text-dim)', fontWeight: 600 }}>
-                    Teléfono Fijo / Ext
-                  </div>
-                  <div style={{ fontSize: '0.88rem', color: 'var(--text-muted)', marginTop: '2px' }}>
-                    {user.telefonoFijo || 'No registrado'}
-                  </div>
-                </div>
               </div>
             ) : (
-              /* Formulario de Edición de Perfil */
               <form onSubmit={handleSaveProfile} style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
                 <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '14px' }}>
                   <div>
@@ -718,24 +702,26 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </section>
         )}
 
-        {/* ACCESO DIRECTO A CARTELERA */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginTop: '12px' }}>
-          <button
-            type="button"
-            onClick={onOpenCartelera}
-            className="btn-ghost"
-            style={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: '8px',
-              color: 'var(--blue)',
-              fontSize: '0.85rem',
-            }}
-          >
-            <Newspaper size={16} />
-            <span>Ver Cartelera Informativa y Comunicados</span>
-          </button>
-        </div>
+        {/* ACCESO DIRECTO A CARTELERA (Solo ADMINISTRADOR y EMPLEADO) */}
+        {!isSeguridad && (
+          <div style={{ display: 'flex', justifyContent: 'center', marginTop: '12px' }}>
+            <button
+              type="button"
+              onClick={onOpenCartelera}
+              className="btn-ghost"
+              style={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: '8px',
+                color: 'var(--blue)',
+                fontSize: '0.85rem',
+              }}
+            >
+              <Newspaper size={16} />
+              <span>Ver Cartelera Informativa y Comunicados</span>
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

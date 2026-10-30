@@ -1,23 +1,26 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Download, LogIn, LogOut } from 'lucide-react';
+import { Search, Download, LogIn, LogOut, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
 import type { HistorialRegistro } from '../types';
-
 
 export const HistorialView: React.FC = () => {
   const [registros, setRegistros] = useState<HistorialRegistro[]>([]);
   const [tipoFilter, setTipoFilter] = useState('');
   const [search, setSearch] = useState('');
   const [loading, setLoading] = useState(true);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
 
   const loadHistorial = async () => {
     setLoading(true);
+    setErrorMsg(null);
     try {
       const res = await api.getHistorial({
         tipo: tipoFilter || undefined,
         search: search || undefined,
       });
       setRegistros(res.data);
+    } catch (err: any) {
+      setErrorMsg(err?.message || 'Error al consultar la bitácora de accesos.');
     } finally {
       setLoading(false);
     }
@@ -27,41 +30,18 @@ export const HistorialView: React.FC = () => {
     loadHistorial();
   }, [tipoFilter, search]);
 
-  // Exportar a CSV
+  // Exportar a CSV estrictamente desde el servidor
   const handleExportCSV = async () => {
+    setErrorMsg(null);
     try {
       await api.downloadHistorialCsv({
         tipo: tipoFilter || undefined,
         search: search || undefined,
       });
     } catch (err: any) {
-      if (registros.length === 0) return;
-      const headers = ['ID', 'Fecha y Hora', 'Tipo', 'Nombre', 'Apellido', 'Cédula', 'Tipo Persona', 'Observación'];
-      const rows = registros.map((r) => {
-        const p = r.usuario || r.invitado;
-        return [
-          r.id,
-          new Date(r.timestamp).toLocaleString('es-ES'),
-          r.tipo,
-          p?.nombre || '',
-          p?.apellido || '',
-          p?.cedula || '',
-          r.invitado ? 'Visitante' : 'Personal',
-          `"${(r.observacion || '').replace(/"/g, '""')}"`,
-        ];
-      });
-
-      const csvContent = 'data:text/csv;charset=utf-8,' + [headers.join(','), ...rows.map((e) => e.join(','))].join('\n');
-      const encodedUri = encodeURI(csvContent);
-      const link = document.createElement('a');
-      link.setAttribute('href', encodedUri);
-      link.setAttribute('download', `bitacora_cai_${new Date().toISOString().slice(0, 10)}.csv`);
-      document.body.appendChild(link);
-      link.click();
-      document.body.removeChild(link);
+      setErrorMsg(err?.message || 'No se pudo exportar la bitácora CSV desde el servidor.');
     }
   };
-
 
   return (
     <div className="animate-fade-in" style={{ width: '100%', minWidth: 0 }}>
@@ -80,6 +60,26 @@ export const HistorialView: React.FC = () => {
           <span>Exportar CSV</span>
         </button>
       </div>
+
+      {errorMsg && (
+        <div
+          style={{
+            background: 'rgba(239, 68, 68, 0.12)',
+            border: '1px solid rgba(239, 68, 68, 0.35)',
+            borderRadius: '10px',
+            padding: '12px 16px',
+            marginBottom: '18px',
+            color: 'var(--rose)',
+            fontSize: '0.85rem',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '10px',
+          }}
+        >
+          <AlertCircle size={18} />
+          <span>{errorMsg}</span>
+        </div>
+      )}
 
       {/* Barra de Filtros */}
       <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '24px', display: 'flex', gap: '16px', alignItems: 'center' }}>

@@ -1,1064 +1,967 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import {
-  Scan,
-  UserCheck,
-  Building2,
+  ScanLine,
+  Search,
   LogIn,
   LogOut,
-  CheckCircle2,
+  UserCheck,
   AlertCircle,
-  Search,
+  CheckCircle2,
+  Building2,
+  Clock,
+  ShieldAlert,
   Camera,
-  ShieldBan,
-  Flame,
-  Printer,
   X,
-  Fingerprint,
-  ChevronDown,
-  ChevronUp,
-  RotateCcw,
+  Volume2,
+  VolumeX,
+  Car,
+  Users,
+  RefreshCw,
+  CloudOff,
+  Trash2,
 } from 'lucide-react';
+import { Html5Qrcode } from 'html5-qrcode';
+import { api } from '../services/api';
+import { offlineQueue, type OfflineMovementItem } from '../services/offlineQueue';
+import { isSignedQrString } from '../utils/qrPass';
+import type { PersonaLookup, TipoAcceso, Usuario } from '../types';
 
-import { Html5QrcodeScanner } from 'html5-qrcode';
-import { api, playChime } from '../services/api';
-import type { PersonaLookup, HistorialRegistro } from '../types';
-import { parseScannedCode } from '../utils/qrPass';
+interface GaritaViewProps {
+  user?: Usuario | null;
+}
 
-export const GaritaView: React.FC = () => {
-  const [query, setQuery] = useState('');
+interface PersonaDentroItem {
+  historialId: string;
+  horaEntrada: string;
+  observacion?: string;
+  tipoPersona: 'USUARIO' | 'INVITADO';
+  id: string;
+  cedula: string;
+  nombre: string;
+  apellido: string;
+  detalle: string;
+}
+
+export const GaritaView: React.FC<GaritaViewProps> = () => {
+  const [cedulaInput, setCedulaInput] = useState('');
+  const [scannedQrToken, setScannedQrToken] = useState<string | undefined>(undefined);
   const [persona, setPersona] = useState<PersonaLookup | null>(null);
   const [observacion, setObservacion] = useState('');
+  const [placaVehiculo, setPlacaVehiculo] = useState('');
   const [loading, setLoading] = useState(false);
-  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'blocked'; message: string } | null>(null);
-  const [scannedPassInfo, setScannedPassInfo] = useState<{
-    isSignedPass: boolean;
-    vigencia?: string;
-    nombre?: string;
-    placa?: string;
-    isValid: boolean;
-  } | null>(null);
-  const [recentMoves, setRecentMoves] = useState<HistorialRegistro[]>([]);
-  const [isBitacoraOpen, setIsBitacoraOpen] = useState(window.innerWidth > 1080);
-  
-  // Estados de escáner
-  const [isCameraActive, setIsCameraActive] = useState(false);
-  const [isRollCallOpen, setIsRollCallOpen] = useState(false);
-  const [evacuationList, setEvacuationList] = useState<Array<{
-    id: string;
-    nombre: string;
-    cedula: string;
-    tipo: string;
-    empresa: string;
-    horaIngreso: string;
-    fotoUrl?: string;
-  }>>([]);
+  const [processing, setProcessing] = useState(false);
+  const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'warning'; msg: string } | null>(null);
+
+  // Lista de personas actualmente dentro (GET /historial/dentro)
+  const [personasDentro, setPersonasDentro] = useState<PersonaDentroItem[]>([]);
+  const [dentroSearch, setDentroSearch] = useState('');
+  const [loadingDentro, setLoadingDentro] = useState(true);
+
+  // Cola offline real (IndexedDB)
+  const [offlineItems, setOfflineItems] = useState<OfflineMovementItem[]>([]);
+  const [syncingOffline, setSyncingOffline] = useState(false);
+
+  // Estados para cámara escáner QR en vivo y sonido de confirmación
+  const [cameraOpen, setCameraOpen] = useState(false);
+  const [cameraError, setCameraError] = useState<string | null>(null);
+  const [soundEnabled, setSoundEnabled] = useState(true);
 
   const inputRef = useRef<HTMLInputElement>(null);
-  const barcodeBuffer = useRef<{ text: string; lastTime: number }>({ text: '', lastTime: 0 });
+  const html5QrCodeRef = useRef<Html5Qrcode | null>(null);
 
-  const quickTags = ['Vehículo', 'Laptop / Equipos', 'Reunión', 'Almuerzo', 'Mantenimiento'];
-
-  // Cargar últimos movimientos
-  const loadRecent = async () => {
+  // Sintetizador Web Audio API para sonido en garita (solo cuando el servidor confirma o rechaza)
+  const playFeedbackSound = (type: 'success' | 'error') => {
+    if (!soundEnabled) return;
     try {
-      const stats = await api.getStats();
-      if (stats && Array.isArray(stats.ultimosMovimientos)) {
-        setRecentMoves(stats.ultimosMovimientos);
+      const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext;
+      const ctx = new AudioCtx();
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.connect(gain);
+      gain.connect(ctx.destination);
+
+      if (type === 'success') {
+        osc.type = 'sine';
+        osc.frequency.setValueAtTime(880, ctx.currentTime);
+        osc.frequency.setValueAtTime(1174.66, ctx.currentTime + 0.09);
+        gain.gain.setValueAtTime(0.18, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.28);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.28);
+      } else {
+        osc.type = 'sawtooth';
+        osc.frequency.setValueAtTime(220, ctx.currentTime);
+        gain.gain.setValueAtTime(0.2, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.35);
       }
     } catch {
-      // Manejar silenciosamente si aún no hay sesión o si está conectando
+      // Ignorar si el navegador bloquea autoplay de audio
     }
   };
 
-  useEffect(() => {
-    loadRecent();
-    inputRef.current?.focus();
-
-    // LISTENER GLOBAL DE PISTOLA LÁSER USB (Emulación de Teclado HID)
-    const handleGlobalKeydown = (e: KeyboardEvent) => {
-      if ((e.target as HTMLElement)?.tagName === 'TEXTAREA') return;
-
-      const now = Date.now();
-      const timeDiff = now - barcodeBuffer.current.lastTime;
-      barcodeBuffer.current.lastTime = now;
-
-      if (e.key === 'Enter') {
-        if (barcodeBuffer.current.text.length >= 4) {
-          const scannedCode = barcodeBuffer.current.text.trim();
-          barcodeBuffer.current.text = '';
-          playChime('laser');
-          setQuery(scannedCode);
-          handleSearch(scannedCode);
-        }
-        return;
-      }
-
-      if (timeDiff < 55 || barcodeBuffer.current.text === '') {
-        if (e.key.length === 1) {
-          barcodeBuffer.current.text += e.key;
-        }
-      } else {
-        if (e.key.length === 1) {
-          barcodeBuffer.current.text = e.key;
-        }
-      }
-    };
-
-    window.addEventListener('keydown', handleGlobalKeydown);
-    return () => window.removeEventListener('keydown', handleGlobalKeydown);
+  const loadPersonasDentro = useCallback(async () => {
+    try {
+      const res = await api.getEvacuationList();
+      setPersonasDentro(res.personasDentro || []);
+    } catch {
+      // Silencioso en refresco periódico si la red cae
+    } finally {
+      setLoadingDentro(false);
+    }
   }, []);
 
-  // Escáner de Cámara con html5-qrcode
-  useEffect(() => {
-    if (!isCameraActive) return;
+  const refreshOfflineQueue = useCallback(async () => {
+    const list = await offlineQueue.listAll();
+    setOfflineItems(list);
+  }, []);
 
-    const scanner = new Html5QrcodeScanner(
-      'camera-reader',
-      { fps: 10, qrbox: { width: 250, height: 250 } },
-      false
-    );
-
-    scanner.render(
-      (decodedText) => {
-        playChime('laser');
-        setIsCameraActive(false);
-        setQuery(decodedText);
-        handleSearch(decodedText);
-        scanner.clear();
-      },
-      () => {}
-    );
-
-    return () => {
-      scanner.clear().catch(() => {});
-    };
-  }, [isCameraActive]);
-
-  // Buscar persona en vivo cuando se presiona Enter o cambia
-  const handleSearch = async (val?: string) => {
-    const rawTerm = val !== undefined ? val : query;
-    if (!rawTerm.trim()) {
-      setPersona(null);
-      setScannedPassInfo(null);
-      return;
-    }
-
-    const parsed = parseScannedCode(rawTerm);
-    const term = parsed.cedula;
-
-    // Validación de Pase Digital Firmado y Expiración (Auditoría Fase 4)
-    if (parsed.isSignedPass) {
-      setScannedPassInfo({
-        isSignedPass: true,
-        vigencia: parsed.vigencia,
-        nombre: parsed.nombre,
-        placa: parsed.placa,
-        isValid: parsed.isValid,
-      });
-
-      if (parsed.isExpired) {
-        playChime('alert');
-        setPersona(null);
-        setFeedback({
-          type: 'blocked',
-          message: `⛔ PASE DIGITAL EXPIRADO: Este pase venció el ${parsed.vigencia}. No se permite el acceso con pases vencidos. Solicite un nuevo pase al anfitrión.`,
-        });
-        return;
-      }
-
-      if (!parsed.isValid && parsed.warning) {
-        playChime('alert');
-        setPersona(null);
-        setFeedback({
-          type: 'blocked',
-          message: `⛔ SEGURIDAD: ${parsed.warning} El pase digital parece haber sido adulterado o carece de firma auténtica.`,
-        });
-        return;
-      }
-    } else {
-      setScannedPassInfo(null);
-    }
-
-    setLoading(true);
-    setFeedback(null);
+  const handleSyncOfflineQueue = useCallback(async () => {
+    setSyncingOffline(true);
     try {
-      const res = await api.lookupPersona(term);
-      if (res) {
-        setPersona(res);
-        // Si el pase digital incluye placa vehicular y no hay observación, auto-completar
-        if (parsed.placa && !observacion) {
-          setObservacion(`Vehículo autorizado: ${parsed.placa}`);
-        }
-        if (res.estadoSeguridad === 'BLOQUEADO') {
-          playChime('alert');
-          setFeedback({
-            type: 'blocked',
-            message: `⛔ ACCESO RESTRINGIDO: ${res.nombre} ${res.apellido} tiene el ingreso bloqueado por orden de Recursos Humanos.`,
-          });
-        }
-      } else {
-        setPersona(null);
+      const result = await api.syncOfflineQueue();
+      await refreshOfflineQueue();
+      if (result.synced > 0) {
+        await loadPersonasDentro();
+        setFeedback({
+          type: result.rejected > 0 ? 'warning' : 'success',
+          msg:
+            result.rejected > 0
+              ? `Sincronizados ${result.synced} movimiento(s). Atención: ${result.rejected} movimiento(s) fueron rechazados por el servidor.`
+              : `Se sincronizaron ${result.synced} movimiento(s) pendientes con el servidor.`,
+        });
+      } else if (result.rejected > 0) {
         setFeedback({
           type: 'error',
-          message: `Identificación '${term}' no encontrada. Verifica la cédula o pre-regístrala en Visitas.`,
+          msg: `${result.rejected} movimiento(s) en cola fueron rechazados por el servidor. Revise el detalle abajo.`,
         });
       }
-    } catch (err: any) {
-      setPersona(null);
-      setFeedback({
-        type: 'error',
-        message: err?.message || 'Error al consultar persona en el servidor.',
-      });
     } finally {
-      setLoading(false);
+      setSyncingOffline(false);
     }
+  }, [loadPersonasDentro, refreshOfflineQueue]);
+
+  useEffect(() => {
+    loadPersonasDentro();
+    refreshOfflineQueue();
+    inputRef.current?.focus();
+
+    const interval = setInterval(loadPersonasDentro, 15000);
+    const onQueueUpdate = () => {
+      refreshOfflineQueue();
+    };
+    const onNetworkOnline = () => {
+      handleSyncOfflineQueue();
+    };
+
+    window.addEventListener('cai:offline-queue-updated', onQueueUpdate);
+    window.addEventListener('online', onNetworkOnline);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('cai:offline-queue-updated', onQueueUpdate);
+      window.removeEventListener('online', onNetworkOnline);
+    };
+  }, [loadPersonasDentro, refreshOfflineQueue, handleSyncOfflineQueue]);
+
+  // Apagar cámara al desmontar o cerrar modal
+  const stopCamera = async () => {
+    if (html5QrCodeRef.current) {
+      try {
+        if (html5QrCodeRef.current.isScanning) {
+          await html5QrCodeRef.current.stop();
+        }
+        await html5QrCodeRef.current.clear();
+      } catch {
+        // Ignorar errores al detener cámara
+      }
+      html5QrCodeRef.current = null;
+    }
+    setCameraOpen(false);
   };
 
-  const handleRegister = async (tipo: 'ENTRADA' | 'SALIDA') => {
-    if (!persona) return;
+  useEffect(() => {
+    return () => {
+      if (html5QrCodeRef.current && html5QrCodeRef.current.isScanning) {
+        html5QrCodeRef.current.stop().catch(() => {});
+      }
+    };
+  }, []);
 
-    if (persona.estadoSeguridad === 'BLOQUEADO' && tipo === 'ENTRADA') {
-      playChime('alert');
-      alert(`ACCESO BLOQUEADO: No se permite el ingreso a ${persona.nombre} ${persona.apellido}.\nMotivo: ${persona.motivoBloqueo}`);
-      return;
-    }
+  // Iniciar escáner de cámara real
+  const startCameraScanner = async () => {
+    setCameraError(null);
+    setCameraOpen(true);
+
+    setTimeout(async () => {
+      try {
+        const scanner = new Html5Qrcode('cai-qr-reader');
+        html5QrCodeRef.current = scanner;
+
+        await scanner.start(
+          { facingMode: 'environment' },
+          {
+            fps: 10,
+            qrbox: { width: 230, height: 230 },
+          },
+          async (decodedText) => {
+            await stopCamera();
+            await executeLookupByCode(decodedText);
+          },
+          () => {
+            // Frame sin QR detectado
+          }
+        );
+      } catch (err: any) {
+        setCameraError(
+          err?.message ||
+            'No se pudo acceder a la cámara. Verifique permisos del navegador o utilice el lector USB/teclado.'
+        );
+      }
+    }, 150);
+  };
+
+  // Búsqueda unificada por Cédula o Token QR firmado en el backend (CAI2)
+  const executeLookupByCode = async (rawCode: string) => {
+    const trimmed = rawCode.trim();
+    if (!trimmed) return;
 
     setLoading(true);
     setFeedback(null);
+    setPersona(null);
+    setScannedQrToken(undefined);
+
     try {
-      await api.registerAccess(persona.id, persona.isGuest, tipo, observacion);
-      setFeedback({
-        type: 'success',
-        message: `¡${tipo === 'ENTRADA' ? 'Ingreso Autorizado' : 'Egreso Registrado'} con éxito para ${persona.nombre} ${persona.apellido}!`,
-      });
-      setPersona({
-        ...persona,
-        estaDentro: tipo === 'ENTRADA',
-      });
-      setObservacion('');
-      await loadRecent();
+      const signedQr = isSignedQrString(trimmed);
+      const found = await api.lookupPersona(trimmed);
+      setCedulaInput(found.cedula);
+      setPersona(found);
+      setPlacaVehiculo(found.placa || '');
+      if (signedQr) {
+        setScannedQrToken(trimmed);
+      }
+
+      if (found.bloqueado) {
+        playFeedbackSound('error');
+        setFeedback({
+          type: 'error',
+          msg: `ALERTA DE SEGURIDAD: Persona en LISTA NEGRA (${found.motivoBloqueo || 'Acceso restringido por administración'}).`,
+        });
+      } else if (signedQr && found.paseFirmado) {
+        setFeedback({
+          type: 'success',
+          msg: `Pase QR HMAC-SHA256 verificado en el servidor para ${found.nombre} ${found.apellido}.`,
+        });
+      }
     } catch (err: any) {
+      playFeedbackSound('error');
       setFeedback({
         type: 'error',
-        message: err?.message || 'Ocurrió un error al registrar el acceso en el servidor.',
+        msg: err.message || 'Persona o pase QR rechazado por el servidor.',
       });
     } finally {
       setLoading(false);
     }
   };
 
-  const handleOpenRollCall = async () => {
+  const handleLookup = async (e?: React.FormEvent) => {
+    if (e) e.preventDefault();
+    await executeLookupByCode(cedulaInput);
+  };
+
+  const handleRegisterAccess = async (tipo: TipoAcceso) => {
+    if (!persona) return;
+    setProcessing(true);
+    setFeedback(null);
+
     try {
-      const list = await api.getEvacuationList();
-      setEvacuationList(list);
-      setIsRollCallOpen(true);
+      const isGuest = persona.tipoPersona === 'INVITADO';
+      const notaFinal = [
+        placaVehiculo.trim() ? `[Vehículo: ${placaVehiculo.trim().toUpperCase()}]` : '',
+        observacion.trim(),
+      ]
+        .filter(Boolean)
+        .join(' — ');
+
+      const result = await api.registerAccess(persona.id, isGuest, tipo, notaFinal || undefined, {
+        qrToken: scannedQrToken,
+        personaNombre: `${persona.nombre} ${persona.apellido}`,
+        personaCedula: persona.cedula,
+        allowOfflineQueue: true,
+      });
+
+      if (result.confirmed) {
+        // SOLO reproducir sonido y mensaje de éxito cuando el servidor confirmó HTTP 200/201
+        playFeedbackSound('success');
+        setFeedback({
+          type: 'success',
+          msg: `✓ ${tipo} CONFIRMADA EN SERVIDOR para ${persona.nombre} ${persona.apellido} (${persona.cedula})`,
+        });
+
+        setPersona(null);
+        setCedulaInput('');
+        setObservacion('');
+        setPlacaVehiculo('');
+        setScannedQrToken(undefined);
+        await loadPersonasDentro();
+        inputRef.current?.focus();
+      } else if (result.queuedOffline) {
+        // NUNCA reproducir sonido de éxito ni presentar como confirmado si quedó en cola offline
+        setFeedback({
+          type: 'warning',
+          msg: `SIN CONEXIÓN AL SERVIDOR: El movimiento de ${tipo} para ${persona.nombre} ${persona.apellido} (${persona.cedula}) fue guardado en la cola local como PENDIENTE DE SINCRONIZAR. No está confirmado aún.`,
+        });
+        setPersona(null);
+        setCedulaInput('');
+        setObservacion('');
+        setPlacaVehiculo('');
+        setScannedQrToken(undefined);
+        await refreshOfflineQueue();
+        inputRef.current?.focus();
+      }
     } catch (err: any) {
-      alert(err?.message || 'Error al obtener lista de personal dentro.');
+      playFeedbackSound('error');
+      setFeedback({
+        type: 'error',
+        msg: err.message || 'El servidor rechazó el registro del movimiento.',
+      });
+    } finally {
+      setProcessing(false);
     }
   };
 
-  const handleClearPersona = () => {
-    setPersona(null);
-    setQuery('');
-    setObservacion('');
-    setFeedback(null);
-    if (inputRef.current) {
-      inputRef.current.focus();
-    }
-  };
+  const filteredPersonasDentro = personasDentro.filter((p) => {
+    if (!dentroSearch.trim()) return true;
+    const q = dentroSearch.toLowerCase();
+    return (
+      p.cedula.toLowerCase().includes(q) ||
+      p.nombre.toLowerCase().includes(q) ||
+      p.apellido.toLowerCase().includes(q) ||
+      p.detalle.toLowerCase().includes(q)
+    );
+  });
+
+  const pendingCount = offlineItems.filter((i) => i.status === 'PENDING').length;
+  const rejectedCount = offlineItems.filter((i) => i.status === 'REJECTED').length;
 
   return (
-    <div className="animate-fade-in garita-grid" style={{ width: '100%', minWidth: 0 }}>
-      {/* Columna Principal: Terminal de Garita */}
-      <div style={{ minWidth: 0, width: '100%' }}>
-        {/* Cabecera Limpia */}
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
-          <div>
-            <h1 style={{ fontSize: '1.4rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-              Control de Garita
-            </h1>
-            <p style={{ color: 'var(--text-muted)', fontSize: '0.88rem', marginTop: '2px' }}>
-              Validación y registro de entradas y salidas en torniquetes.
-            </p>
-          </div>
-
-          <div style={{ display: 'flex', gap: '8px' }}>
-            <button
-              type="button"
-              className="btn-ghost"
-              style={{ padding: '8px 14px', fontSize: '0.82rem' }}
-              onClick={() => setIsCameraActive(!isCameraActive)}
-            >
-              <Camera size={15} />
-              <span>{isCameraActive ? 'Cerrar Cámara' : 'Cámara Web'}</span>
-            </button>
-
-            <button
-              type="button"
-              className="btn-danger"
-              style={{ padding: '8px 14px', fontSize: '0.82rem' }}
-              onClick={handleOpenRollCall}
-            >
-              <Flame size={15} />
-              <span>Evacuación</span>
-            </button>
-          </div>
+    <div className="animate-fade-in" style={{ width: '100%', minWidth: 0 }}>
+      {/* Encabezado de Garita */}
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px', flexWrap: 'wrap', gap: '12px' }}>
+        <div>
+          <h1 style={{ fontSize: '1.6rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em' }}>
+            Consola de Garita & Control de Acceso
+          </h1>
+          <p style={{ color: 'var(--text-muted)', fontSize: '0.9rem', marginTop: '4px' }}>
+            Escaneo de código QR o Cédula para registrar entrada/salida y listado en vivo de personas dentro.
+          </p>
         </div>
 
-        {/* Visor de Cámara si está activo */}
-        {isCameraActive && (
-          <div
-            className="glass-panel animate-fade-in"
-            style={{
-              padding: '20px',
-              marginBottom: '20px',
-              border: '1px solid var(--cyan)',
-              background: 'var(--bg-card)',
-              textAlign: 'center',
-            }}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <button
+            type="button"
+            className="btn-ghost"
+            onClick={() => setSoundEnabled(!soundEnabled)}
+            title={soundEnabled ? 'Silenciar alertas sonoras' : 'Activar alertas sonoras'}
+            style={{ padding: '10px 14px' }}
           >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '12px' }}>
-              <span style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--cyan)' }}>
-                Lectura Óptica por Cámara Web
-              </span>
-              <button
-                type="button"
-                className="btn-ghost"
-                style={{ padding: '4px' }}
-                onClick={() => setIsCameraActive(false)}
-              >
-                <X size={16} />
-              </button>
-            </div>
-            <div id="camera-reader" style={{ maxWidth: '380px', margin: '0 auto', borderRadius: '12px', overflow: 'hidden' }} />
-          </div>
-        )}
+            {soundEnabled ? <Volume2 size={18} color="var(--accent-cyan)" /> : <VolumeX size={18} color="var(--text-dim)" />}
+            <span style={{ fontSize: '0.82rem' }}>{soundEnabled ? 'Audio Activo' : 'Silenciado'}</span>
+          </button>
 
-        {/* Caja de Búsqueda / Escáner Limpia */}
-        <div className="glass-panel" style={{ padding: '16px 20px', marginBottom: '14px', width: '100%' }}>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSearch();
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '10px' }}>
-              <label style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>
-                Identificación (Cédula de Identidad o Carnet)
-              </label>
-            </div>
-
-            <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-              <div style={{ position: 'relative', flex: 1 }}>
-                <Scan
-                  size={20}
-                  color="var(--cyan)"
-                  style={{ position: 'absolute', left: '14px', top: '50%', transform: 'translateY(-50%)' }}
-                />
-                <input
-                  ref={inputRef}
-                  type="text"
-                  className="form-input"
-                  style={{
-                    paddingLeft: '44px',
-                    paddingRight: '44px',
-                    fontSize: '1.15rem',
-                    fontFamily: 'var(--font-mono)',
-                    fontWeight: 700,
-                    letterSpacing: '0.04em',
-                  }}
-                  placeholder="V-12345678 o escanea carnet..."
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
-                />
-                <button
-                  type="button"
-                  title={isCameraActive ? 'Cerrar Cámara' : 'Escanear con Cámara'}
-                  onClick={() => setIsCameraActive(!isCameraActive)}
-                  style={{
-                    position: 'absolute',
-                    right: '8px',
-                    top: '50%',
-                    transform: 'translateY(-50%)',
-                    background: isCameraActive ? 'rgba(56, 189, 248, 0.2)' : 'transparent',
-                    color: isCameraActive ? 'var(--cyan)' : 'var(--text-muted)',
-                    border: 'none',
-                    borderRadius: '8px',
-                    padding: '6px',
-                    cursor: 'pointer',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                  }}
-                >
-                  <Camera size={18} />
-                </button>
-              </div>
-
-              <button type="submit" className="btn-primary" style={{ padding: '0 18px', fontSize: '0.92rem', height: '46px' }} disabled={loading}>
-                <Search size={18} />
-                <span className="hide-on-mobile">Validar</span>
-              </button>
-            </div>
-          </form>
-        </div>
-
-        {/* Mensaje de Feedback */}
-        {feedback && (
-          <div
-            style={{
-              padding: '12px 18px',
-              borderRadius: 'var(--radius-sm)',
-              marginBottom: '14px',
-              display: 'flex',
-              alignItems: 'center',
-              gap: '14px',
-              background:
-                feedback.type === 'blocked'
-                  ? 'rgba(244, 63, 94, 0.25)'
-                  : feedback.type === 'success'
-                  ? 'rgba(16, 185, 129, 0.16)'
-                  : 'rgba(244, 63, 94, 0.16)',
-              border: `2px solid ${
-                feedback.type === 'blocked'
-                  ? '#f43f5e'
-                  : feedback.type === 'success'
-                  ? 'rgba(16, 185, 129, 0.5)'
-                  : 'rgba(244, 63, 94, 0.5)'
-              }`,
-              color: feedback.type === 'success' ? '#34d399' : '#fb7185',
-              fontWeight: 600,
-              boxShadow: feedback.type === 'blocked' ? '0 0 30px rgba(244, 63, 94, 0.4)' : 'none',
-            }}
-          >
-            {feedback.type === 'blocked' ? (
-              <ShieldBan size={26} color="#f43f5e" style={{ flexShrink: 0 }} />
-            ) : feedback.type === 'success' ? (
-              <CheckCircle2 size={24} style={{ flexShrink: 0 }} />
-            ) : (
-              <AlertCircle size={24} style={{ flexShrink: 0 }} />
-            )}
-            <span style={{ fontSize: '0.96rem', lineHeight: 1.4 }}>{feedback.message}</span>
-          </div>
-        )}
-
-        {/* FICHA TIPO CARNET FÍSICO INTELIGENTE (SMART NFC BADGE) */}
-        {persona ? (
-          <div
-            className="smart-badge-card animate-fade-in"
-            style={{
-              padding: '20px 22px',
-              width: '100%',
-              border:
-                persona.estadoSeguridad === 'BLOQUEADO'
-                  ? '2px solid #f43f5e'
-                  : '1px solid rgba(56, 189, 248, 0.4)',
-              boxShadow:
-                persona.estadoSeguridad === 'BLOQUEADO'
-                  ? '0 0 40px rgba(244, 63, 94, 0.35)'
-                  : '0 25px 60px -15px rgba(0, 0, 0, 0.85)',
-            }}
-          >
-            {/* Animación Láser sobre el carnet */}
-            <div className="laser-scanner-line" />
-
-            {/* Cabecera del Carnet con Ranura de Cordón y Chip */}
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '22px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                <span className="badge-chip" title="Smart RFID / NFC Chip" />
-                <span style={{ fontSize: '0.74rem', fontFamily: 'var(--font-mono)', fontWeight: 800, color: 'var(--text-dim)', letterSpacing: '0.08em' }}>
-                  NFC-SEC // ID: {persona.id.slice(0, 8)}
-                </span>
-                {scannedPassInfo?.isSignedPass && scannedPassInfo.isValid && (
-                  <span
-                    style={{
-                      fontSize: '0.70rem',
-                      fontWeight: 700,
-                      padding: '2px 8px',
-                      borderRadius: '4px',
-                      background: 'rgba(16, 185, 129, 0.15)',
-                      color: 'var(--emerald)',
-                      border: '1px solid rgba(16, 185, 129, 0.3)',
-                    }}
-                  >
-                    🔒 Pase Firmado (Vence: {scannedPassInfo.vigencia})
-                  </span>
-                )}
-              </div>
-
-              {/* Ranura simulada de carnet */}
-              <div
-                style={{
-                  width: '54px',
-                  height: '8px',
-                  borderRadius: '9999px',
-                  background: 'rgba(0, 0, 0, 0.6)',
-                  border: '1px solid rgba(255, 255, 255, 0.1)',
-                }}
-              />
-
-              <div
-                style={{
-                  padding: '6px 14px',
-                  borderRadius: 'var(--radius-sm)',
-                  background: persona.estaDentro ? 'rgba(16, 185, 129, 0.15)' : 'rgba(255, 255, 255, 0.05)',
-                  border: `1px solid ${persona.estaDentro ? 'rgba(16, 185, 129, 0.4)' : 'var(--border-subtle)'}`,
-                  fontSize: '0.78rem',
-                  fontWeight: 700,
-                  color: persona.estaDentro ? '#34d399' : 'var(--text-dim)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '6px',
-                }}
-              >
-                <span
-                  style={{
-                    width: '8px',
-                    height: '8px',
-                    borderRadius: '50%',
-                    background: persona.estaDentro ? '#10b981' : '#64748b',
-                  }}
-                />
-                {persona.estaDentro ? 'EN INSTALACIONES' : 'FUERA'}
-              </div>
-            </div>
-
-            {/* Cuerpo del Carnet: Foto, Datos y Holograma Compactos */}
-            <div style={{ display: 'flex', gap: '16px', alignItems: 'center', marginBottom: '16px' }}>
-              {/* Fotografía HD enmarcada */}
-              <div style={{ position: 'relative', flexShrink: 0 }}>
-                {persona.fotoUrl ? (
-                  <img
-                    src={persona.fotoUrl}
-                    alt={persona.nombre}
-                    style={{
-                      width: '80px',
-                      height: '80px',
-                      borderRadius: '16px',
-                      objectFit: 'cover',
-                      border:
-                        persona.estadoSeguridad === 'BLOQUEADO'
-                          ? '3px solid #f43f5e'
-                          : '3px solid #38bdf8',
-                      boxShadow: '0 8px 20px rgba(0, 0, 0, 0.5)',
-                    }}
-                  />
-                ) : (
-                  <div
-                    style={{
-                      width: '80px',
-                      height: '80px',
-                      borderRadius: '16px',
-                      background: 'linear-gradient(135deg, #0284c7 0%, #2563eb 100%)',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      fontSize: '1.75rem',
-                      fontWeight: 900,
-                      color: '#ffffff',
-                    }}
-                  >
-                    {persona.nombre[0]}
-                    {persona.apellido[0]}
-                  </div>
-                )}
-
-                <span
-                  style={{
-                    position: 'absolute',
-                    bottom: '-3px',
-                    right: '-3px',
-                    width: '18px',
-                    height: '18px',
-                    borderRadius: '50%',
-                    background: persona.estadoSeguridad === 'BLOQUEADO' ? '#f43f5e' : '#10b981',
-                    border: '2px solid var(--bg-surface)',
-                  }}
-                  title={persona.estadoSeguridad}
-                />
-              </div>
-
-              {/* Datos de Identidad */}
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginBottom: '4px', flexWrap: 'wrap' }}>
-                  <h2 style={{ fontSize: '1.3rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-                    {persona.nombre} {persona.apellido}
-                  </h2>
-                  <span
-                    className={`badge ${
-                      persona.estadoSeguridad === 'BLOQUEADO'
-                        ? 'badge-salida'
-                        : persona.isGuest
-                        ? 'badge-empleado'
-                        : persona.rol === 'ADMINISTRADOR'
-                        ? 'badge-admin'
-                        : persona.rol === 'SEGURIDAD'
-                        ? 'badge-seguridad'
-                        : 'badge-entrada'
-                    }`}
-                    style={{ padding: '2px 8px', fontSize: '0.72rem' }}
-                  >
-                    {persona.estadoSeguridad === 'BLOQUEADO' ? 'BLOQUEADO' : persona.isGuest ? 'VISITANTE' : persona.rol}
-                  </span>
-                </div>
-
-                <div style={{ display: 'flex', gap: '12px', fontSize: '0.85rem', color: 'var(--text-muted)', flexWrap: 'wrap' }}>
-                  <span style={{ fontFamily: 'var(--font-mono)', color: 'var(--cyan)', fontWeight: 700 }}>
-                    {persona.cedula}
-                  </span>
-                  {persona.empresa && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <Building2 size={14} /> {persona.empresa}
-                    </span>
-                  )}
-                  {persona.empleadoAnfitrion && (
-                    <span style={{ display: 'flex', alignItems: 'center', gap: '4px', color: '#fbbf24', fontWeight: 600 }}>
-                      <UserCheck size={14} /> Anfitrión: {persona.empleadoAnfitrion}
-                    </span>
-                  )}
-                </div>
-
-                {/* Motivo de bloqueo si aplica */}
-                {persona.estadoSeguridad === 'BLOQUEADO' && (
-                  <div style={{ marginTop: '8px', padding: '6px 10px', background: 'rgba(244, 63, 94, 0.2)', border: '1px solid rgba(244, 63, 94, 0.4)', borderRadius: '6px', fontSize: '0.78rem', color: '#fb7185' }}>
-                    <strong>Motivo de Restricción:</strong> {persona.motivoBloqueo}
-                  </div>
-                )}
-              </div>
-            </div>
-
-            {/* Observación / Motivo Compacto */}
-            <div style={{ marginBottom: '16px' }}>
-              <input
-                type="text"
-                className="form-input"
-                style={{ padding: '8px 12px', fontSize: '0.86rem' }}
-                placeholder="Observación opcional (vehículo, entrega, etc.)..."
-                value={observacion}
-                onChange={(e) => setObservacion(e.target.value)}
-              />
-
-              {/* Quick observation tags */}
-              <div style={{ display: 'flex', gap: '6px', marginTop: '6px', flexWrap: 'wrap' }}>
-                {quickTags.map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    className="btn-ghost"
-                    style={{ padding: '2px 8px', fontSize: '0.72rem', borderRadius: '4px' }}
-                    onClick={() => setObservacion((prev) => (prev ? `${prev}, ${t}` : t))}
-                  >
-                    + {t}
-                  </button>
-                ))}
-              </div>
-            </div>
-
-            {/* BOTONES TÁCTICOS ERGONÓMICOS CON ICONOS */}
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr auto', gap: '10px' }}>
-              <button
-                type="button"
-                className="btn-success"
-                onClick={() => handleRegister('ENTRADA')}
-                disabled={loading || persona.estadoSeguridad === 'BLOQUEADO'}
-                title="Registrar Entrada"
-                style={{
-                  height: '46px',
-                  borderRadius: '10px',
-                  padding: '0 14px',
-                  fontSize: '0.92rem',
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  opacity: persona.estadoSeguridad === 'BLOQUEADO' ? 0.4 : 1,
-                  cursor: persona.estadoSeguridad === 'BLOQUEADO' ? 'not-allowed' : 'pointer',
-                  boxShadow: !persona.estaDentro ? '0 0 16px rgba(16, 185, 129, 0.4)' : 'none',
-                  border: !persona.estaDentro ? '1.5px solid #34d399' : undefined,
-                }}
-              >
-                <LogIn size={20} />
-                <span>ENTRADA</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn-danger"
-                onClick={() => handleRegister('SALIDA')}
-                disabled={loading}
-                title="Registrar Salida"
-                style={{
-                  height: '46px',
-                  borderRadius: '10px',
-                  padding: '0 14px',
-                  fontSize: '0.92rem',
-                  fontWeight: 800,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  gap: '8px',
-                  boxShadow: persona.estaDentro ? '0 0 16px rgba(244, 63, 94, 0.4)' : 'none',
-                  border: persona.estaDentro ? '1.5px solid #fb7185' : undefined,
-                }}
-              >
-                <LogOut size={20} />
-                <span>SALIDA</span>
-              </button>
-
-              <button
-                type="button"
-                className="btn-ghost"
-                onClick={handleClearPersona}
-                title="Limpiar y Escanear Siguiente"
-                style={{
-                  height: '46px',
-                  width: '46px',
-                  borderRadius: '10px',
-                  padding: 0,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  color: 'var(--text-muted)',
-                }}
-              >
-                <RotateCcw size={18} />
-              </button>
-            </div>
-          </div>
-        ) : (
-          /* Estado Vacío: Esperando escaneo */
           <div
             className="glass-panel"
             style={{
-              padding: '36px 20px',
-              textAlign: 'center',
+              padding: '10px 18px',
               display: 'flex',
-              flexDirection: 'column',
               alignItems: 'center',
-              gap: '12px',
-              width: '100%',
+              gap: '10px',
+              borderColor: 'rgba(14, 165, 233, 0.3)',
             }}
           >
-            <div
-              style={{
-                width: '56px',
-                height: '56px',
-                borderRadius: '50%',
-                background: 'rgba(56, 189, 248, 0.08)',
-                border: '1px solid rgba(56, 189, 248, 0.25)',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                color: 'var(--cyan)',
-                boxShadow: '0 0 25px rgba(56, 189, 248, 0.15)',
-              }}
-            >
-              <Fingerprint size={32} />
-            </div>
-
-            <div>
-              <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', letterSpacing: '-0.02em', margin: 0 }}>
-                Terminal Lista para Identificación
-              </h3>
-              <p style={{ fontSize: '0.84rem', maxWidth: '440px', lineHeight: 1.5, color: 'var(--text-muted)', marginTop: '4px', margin: 0 }}>
-                Dispara con el lector láser o introduce la cédula para validar permisos de acceso y foto de seguridad.
-              </p>
-            </div>
-          </div>
-        )}
-      </div>
-
-      {/* Columna Derecha / Sección Inferior: Bitácora Acordeón Retráctil */}
-      <div style={{ minWidth: 0, width: '100%' }}>
-        <div
-          onClick={() => setIsBitacoraOpen(!isBitacoraOpen)}
-          style={{
-            marginBottom: '10px',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'space-between',
-            cursor: 'pointer',
-            padding: '10px 14px',
-            background: 'rgba(255, 255, 255, 0.03)',
-            borderRadius: 'var(--radius-sm)',
-            border: '1px solid var(--border-subtle)',
-            userSelect: 'none',
-            transition: 'background 0.15s ease',
-          }}
-          onMouseEnter={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.05)';
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.background = 'rgba(255, 255, 255, 0.03)';
-          }}
-        >
-          <div style={{ display: 'flex', alignItems: 'center', gap: '8px', flexWrap: 'wrap' }}>
-            <h2 style={{ fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
-              Bitácora de Garita
-            </h2>
-            <span
-              className="badge"
-              style={{
-                fontSize: '0.72rem',
-                padding: '2px 8px',
-                background: 'rgba(56, 189, 248, 0.15)',
-                color: 'var(--cyan)',
-              }}
-            >
-              {recentMoves.length}
-            </span>
-
-            {/* Mini preview del último movimiento cuando está colapsado */}
-            {!isBitacoraOpen && recentMoves.length > 0 && (
-              <span
-                style={{
-                  fontSize: '0.75rem',
-                  color: 'var(--text-dim)',
-                  overflow: 'hidden',
-                  textOverflow: 'ellipsis',
-                  whiteSpace: 'nowrap',
-                  maxWidth: '240px',
-                }}
-              >
-                • Último: {recentMoves[0].usuario?.nombre || recentMoves[0].invitado?.nombre || 'Persona'} ({recentMoves[0].tipo})
-              </span>
-            )}
-          </div>
-
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px', color: 'var(--text-muted)' }}>
-            <span style={{ fontSize: '0.78rem' }}>{isBitacoraOpen ? 'Contraer' : 'Expandir'}</span>
-            {isBitacoraOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+            <Users size={18} color="var(--accent-emerald)" />
+            <span style={{ fontSize: '0.85rem', color: 'var(--text-muted)' }}>Personas Dentro:</span>
+            <strong style={{ fontSize: '1.15rem', color: 'var(--text-main)', fontFamily: 'var(--font-mono)' }}>
+              {personasDentro.length}
+            </strong>
           </div>
         </div>
-
-        {isBitacoraOpen && (
-          <div
-            className="glass-panel animate-fade-in"
-            style={{
-              padding: '14px',
-              display: 'flex',
-              flexDirection: 'column',
-              gap: '8px',
-              width: '100%',
-              maxHeight: '420px',
-              overflowY: 'auto',
-            }}
-          >
-            {recentMoves.length === 0 ? (
-              <div style={{ padding: '24px', textAlign: 'center', color: 'var(--text-dim)', fontSize: '0.85rem' }}>
-                No hay movimientos registrados hoy.
-              </div>
-            ) : (
-              recentMoves.map((mov) => {
-                const nombre = mov.usuario
-                  ? `${mov.usuario.nombre} ${mov.usuario.apellido}`
-                  : mov.invitado
-                  ? `${mov.invitado.nombre} ${mov.invitado.apellido}`
-                  : 'Desconocido';
-
-                const cedula = mov.usuario?.cedula || mov.invitado?.cedula || '---';
-                const isEntrada = mov.tipo === 'ENTRADA';
-                const foto = mov.usuario?.fotoUrl || mov.invitado?.fotoUrl;
-
-                return (
-                  <div
-                    key={mov.id}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'space-between',
-                      padding: '10px 12px',
-                      borderRadius: 'var(--radius-sm)',
-                      background: 'rgba(255, 255, 255, 0.02)',
-                      border: '1px solid var(--border-subtle)',
-                      transition: 'all 0.15s ease',
-                    }}
-                    onMouseEnter={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.04)';
-                      e.currentTarget.style.borderColor = 'rgba(255, 255, 255, 0.15)';
-                    }}
-                    onMouseLeave={(e) => {
-                      e.currentTarget.style.background = 'rgba(255, 255, 255, 0.02)';
-                      e.currentTarget.style.borderColor = 'var(--border-subtle)';
-                    }}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {foto ? (
-                        <img
-                          src={foto}
-                          alt={nombre}
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '8px',
-                            objectFit: 'cover',
-                            border: `1px solid ${isEntrada ? '#10b981' : '#f43f5e'}`,
-                          }}
-                        />
-                      ) : (
-                        <div
-                          style={{
-                            width: '32px',
-                            height: '32px',
-                            borderRadius: '8px',
-                            display: 'flex',
-                            alignItems: 'center',
-                            justifyContent: 'center',
-                            background: isEntrada ? 'rgba(16, 185, 129, 0.15)' : 'rgba(244, 63, 94, 0.15)',
-                            color: isEntrada ? '#34d399' : '#fb7185',
-                          }}
-                        >
-                          {isEntrada ? <LogIn size={16} /> : <LogOut size={16} />}
-                        </div>
-                      )}
-
-                      <div>
-                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: 'var(--text-main)' }}>{nombre}</div>
-                        <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
-                          {cedula} • {mov.invitado ? 'Visitante' : 'Personal'}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ textAlign: 'right' }}>
-                      <span className={`badge ${isEntrada ? 'badge-entrada' : 'badge-salida'}`} style={{ padding: '2px 7px', fontSize: '0.68rem' }}>
-                        {mov.tipo}
-                      </span>
-                      <div style={{ fontSize: '0.70rem', color: 'var(--text-dim)', marginTop: '2px', fontFamily: 'var(--font-mono)' }}>
-                        {new Date(mov.timestamp).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
-                      </div>
-                    </div>
-                  </div>
-                );
-              })
-            )}
-          </div>
-        )}
       </div>
 
-      {/* MODAL DE EMERGENCIA / ROLL CALL */}
-      {isRollCallOpen && (
+      {/* Aviso Visible de Cola Offline (IndexedDB) cuando hay movimientos pendientes o rechazados */}
+      {offlineItems.length > 0 && (
         <div
+          className="glass-panel"
           style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(5, 8, 15, 0.88)',
-            backdropFilter: 'blur(12px)',
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            zIndex: 150,
+            padding: '16px 20px',
+            marginBottom: '20px',
+            border: rejectedCount > 0 ? '1px solid rgba(239, 68, 68, 0.5)' : '1px solid rgba(245, 158, 11, 0.5)',
+            background: rejectedCount > 0 ? 'rgba(239, 68, 68, 0.08)' : 'rgba(245, 158, 11, 0.08)',
           }}
         >
-          <div
-            className="glass-panel animate-fade-in"
-            style={{
-              width: '780px',
-              maxHeight: '85vh',
-              padding: '32px',
-              background: 'var(--bg-modal)',
-              border: '2px solid #f43f5e',
-              display: 'flex',
-              flexDirection: 'column',
-              boxShadow: '0 0 60px rgba(244, 63, 94, 0.4)',
-            }}
-          >
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '18px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '14px' }}>
-                <div
-                  style={{
-                    width: '46px',
-                    height: '46px',
-                    borderRadius: '12px',
-                    background: '#f43f5e',
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    color: '#ffffff',
-                    boxShadow: '0 0 20px rgba(244, 63, 94, 0.5)',
-                  }}
-                >
-                  <Flame size={26} />
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <CloudOff size={20} color={rejectedCount > 0 ? 'var(--rose)' : 'var(--amber)'} />
+              <div>
+                <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
+                  COLA OFFLINE DE GARITA — {pendingCount} PENDIENTE(S) DE SINCRONIZAR
+                  {rejectedCount > 0 ? ` • ${rejectedCount} RECHAZADO(S) POR EL SERVIDOR` : ''}
                 </div>
-                <div>
-                  <h2 style={{ fontSize: '1.45rem', fontWeight: 900, color: 'var(--text-main)' }}>
-                    Lista de Evacuación de Emergencia (Roll Call)
-                  </h2>
-                  <span style={{ fontSize: '0.82rem', color: 'var(--text-muted)' }}>
-                    Censo oficial en tiempo real de personas dentro de las instalaciones
-                  </span>
+                <div style={{ fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                  Los movimientos en esta cola NO están confirmados hasta que el servidor los valide.
                 </div>
-              </div>
-
-              <div style={{ display: 'flex', gap: '8px' }}>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ padding: '8px 14px', fontSize: '0.82rem' }}
-                  onClick={() => window.print()}
-                >
-                  <Printer size={16} />
-                  <span>Imprimir Acta</span>
-                </button>
-                <button
-                  type="button"
-                  className="btn-ghost"
-                  style={{ padding: '6px' }}
-                  onClick={() => setIsRollCallOpen(false)}
-                >
-                  <X size={18} />
-                </button>
               </div>
             </div>
 
-            <div
-              style={{
-                background: 'rgba(244, 63, 94, 0.12)',
-                border: '1px solid rgba(244, 63, 94, 0.35)',
-                padding: '12px 18px',
-                borderRadius: '8px',
-                marginBottom: '18px',
-                fontSize: '0.92rem',
-                color: '#fb7185',
-                display: 'flex',
-                justifyContent: 'space-between',
-                fontWeight: 800,
-              }}
+            <button
+              type="button"
+              onClick={handleSyncOfflineQueue}
+              disabled={syncingOffline || pendingCount === 0}
+              className="btn-primary"
+              style={{ padding: '8px 14px', fontSize: '0.8rem' }}
             >
-              <span>TOTAL DE PERSONAS FÍSICAMENTE EN SITIO:</span>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: '1.05rem' }}>{evacuationList.length} Personas</span>
-            </div>
+              <RefreshCw size={15} />
+              <span>{syncingOffline ? 'Sincronizando...' : 'Sincronizar Ahora'}</span>
+            </button>
+          </div>
 
-            <div style={{ overflowY: 'auto', flex: 1, border: '1px solid var(--border-subtle)', borderRadius: '10px' }}>
-              <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.88rem' }}>
-                <thead>
-                  <tr style={{ background: 'rgba(255, 255, 255, 0.04)', borderBottom: '1px solid var(--border-subtle)' }}>
-                    <th style={{ padding: '12px 18px', color: 'var(--text-dim)', fontSize: '0.76rem', textTransform: 'uppercase' }}>Persona</th>
-                    <th style={{ padding: '12px 18px', color: 'var(--text-dim)', fontSize: '0.76rem', textTransform: 'uppercase' }}>Cédula</th>
-                    <th style={{ padding: '12px 18px', color: 'var(--text-dim)', fontSize: '0.76rem', textTransform: 'uppercase' }}>Categoría</th>
-                    <th style={{ padding: '12px 18px', color: 'var(--text-dim)', fontSize: '0.76rem', textTransform: 'uppercase' }}>Empresa</th>
-                    <th style={{ padding: '12px 18px', color: 'var(--text-dim)', fontSize: '0.76rem', textTransform: 'uppercase' }}>Hora de Entrada</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {evacuationList.map((item) => (
-                    <tr key={item.id} style={{ borderBottom: '1px solid var(--border-subtle)' }}>
-                      <td style={{ padding: '12px 18px', fontWeight: 700, color: 'var(--text-main)' }}>{item.nombre}</td>
-                      <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)', color: 'var(--cyan)' }}>{item.cedula}</td>
-                      <td style={{ padding: '12px 18px' }}>{item.tipo}</td>
-                      <td style={{ padding: '12px 18px', color: 'var(--text-muted)' }}>{item.empresa}</td>
-                      <td style={{ padding: '12px 18px', fontFamily: 'var(--font-mono)' }}>
-                        {new Date(item.horaIngreso).toLocaleTimeString('es-ES')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+            {offlineItems.map((item) => (
+              <div
+                key={item.id}
+                style={{
+                  display: 'flex',
+                  justifyContent: 'space-between',
+                  alignItems: 'center',
+                  flexWrap: 'wrap',
+                  gap: '10px',
+                  padding: '10px 14px',
+                  borderRadius: '8px',
+                  background: 'var(--bg-surface)',
+                  border:
+                    item.status === 'REJECTED'
+                      ? '1px solid rgba(239, 68, 68, 0.45)'
+                      : '1px solid rgba(245, 158, 11, 0.35)',
+                }}
+              >
+                <div>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <span
+                      className={`badge ${item.status === 'REJECTED' ? 'badge-salida' : 'badge-seguridad'}`}
+                      style={{
+                        background: item.status === 'REJECTED' ? 'rgba(239,68,68,0.18)' : 'rgba(245,158,11,0.18)',
+                        color: item.status === 'REJECTED' ? 'var(--rose)' : 'var(--amber)',
+                      }}
+                    >
+                      {item.status === 'REJECTED' ? 'RECHAZADO POR SERVIDOR' : 'PENDIENTE DE SINCRONIZAR'}
+                    </span>
+                    <strong style={{ fontSize: '0.86rem', color: 'var(--text-main)' }}>
+                      {item.tipo} — {item.personaNombre} ({item.personaCedula})
+                    </strong>
+                    <span style={{ fontSize: '0.75rem', color: 'var(--text-dim)', fontFamily: 'var(--font-mono)' }}>
+                      {new Date(item.queuedAt).toLocaleTimeString('es-VE')}
+                    </span>
+                  </div>
+                  {item.errorMsg && (
+                    <div style={{ fontSize: '0.78rem', color: 'var(--rose)', marginTop: '4px', fontWeight: 600 }}>
+                      Motivo del rechazo: {item.errorMsg}
+                    </div>
+                  )}
+                </div>
+
+                <div style={{ display: 'flex', gap: '8px' }}>
+                  {item.status === 'REJECTED' && (
+                    <button
+                      type="button"
+                      className="btn-ghost"
+                      style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                      onClick={async () => {
+                        await offlineQueue.resetToPending(item.id);
+                        await handleSyncOfflineQueue();
+                      }}
+                    >
+                      Reintentar
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ padding: '5px 10px', fontSize: '0.75rem', color: 'var(--rose)' }}
+                    onClick={async () => {
+                      await offlineQueue.remove(item.id);
+                      await refreshOfflineQueue();
+                    }}
+                    title="Descartar movimiento de la cola offline"
+                  >
+                    <Trash2 size={14} />
+                    <span>Descartar</span>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         </div>
       )}
+
+      {/* Mensajes de Alerta / Confirmación */}
+      {feedback && (
+        <div
+          className="animate-fade-in"
+          style={{
+            padding: '16px 20px',
+            borderRadius: '12px',
+            marginBottom: '22px',
+            display: 'flex',
+            alignItems: 'center',
+            gap: '12px',
+            background:
+              feedback.type === 'success'
+                ? 'rgba(16, 185, 129, 0.14)'
+                : feedback.type === 'warning'
+                  ? 'rgba(245, 158, 11, 0.15)'
+                  : 'rgba(244, 63, 94, 0.14)',
+            border:
+              feedback.type === 'success'
+                ? '1px solid rgba(16, 185, 129, 0.35)'
+                : feedback.type === 'warning'
+                  ? '1px solid rgba(245, 158, 11, 0.4)'
+                  : '1px solid rgba(244, 63, 94, 0.35)',
+            color:
+              feedback.type === 'success'
+                ? '#34d399'
+                : feedback.type === 'warning'
+                  ? '#fbbf24'
+                  : '#fb7185',
+            fontWeight: 600,
+          }}
+        >
+          {feedback.type === 'success' ? <CheckCircle2 size={22} /> : <AlertCircle size={22} />}
+          <span>{feedback.msg}</span>
+        </div>
+      )}
+
+      <div className="responsive-two-col" style={{ display: 'grid', gridTemplateColumns: '1fr 1.2fr', gap: '24px' }}>
+        {/* Panel Izquierdo: Escáner QR / Cédula */}
+        <div className="glass-panel" style={{ padding: '28px', height: 'fit-content' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+              <div
+                style={{
+                  width: '42px',
+                  height: '42px',
+                  borderRadius: '10px',
+                  background: 'rgba(56, 189, 248, 0.14)',
+                  color: 'var(--accent-cyan)',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                }}
+              >
+                <ScanLine size={22} />
+              </div>
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+                  Identificación QR / Cédula
+                </h3>
+                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                  Lector óptico USB, cámara o ingreso manual
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={cameraOpen ? stopCamera : startCameraScanner}
+              className="btn-ghost"
+              style={{
+                borderColor: cameraOpen ? 'rgba(244, 63, 94, 0.4)' : 'rgba(56, 189, 248, 0.35)',
+                color: cameraOpen ? '#fb7185' : 'var(--accent-cyan)',
+                padding: '8px 12px',
+                fontSize: '0.8rem',
+              }}
+            >
+              {cameraOpen ? <X size={16} /> : <Camera size={16} />}
+              <span>{cameraOpen ? 'Cerrar Cámara' : 'Escanear con Cámara'}</span>
+            </button>
+          </div>
+
+          {cameraOpen && (
+            <div
+              style={{
+                marginBottom: '18px',
+                padding: '12px',
+                borderRadius: '12px',
+                background: 'rgba(0,0,0,0.4)',
+                border: '1px solid var(--border-glow)',
+              }}
+            >
+              <div id="cai-qr-reader" style={{ width: '100%', borderRadius: '8px', overflow: 'hidden' }} />
+              {cameraError && (
+                <p style={{ color: '#fb7185', fontSize: '0.8rem', marginTop: '8px', textAlign: 'center' }}>
+                  {cameraError}
+                </p>
+              )}
+              <p style={{ color: 'var(--text-dim)', fontSize: '0.75rem', marginTop: '8px', textAlign: 'center' }}>
+                Apunte la cámara al Pase QR firmado (CAI2) o código de identificación del visitante
+              </p>
+            </div>
+          )}
+
+          <form onSubmit={handleLookup}>
+            <label
+              style={{
+                display: 'block',
+                fontSize: '0.8rem',
+                fontWeight: 600,
+                color: 'var(--text-muted)',
+                marginBottom: '8px',
+                textTransform: 'uppercase',
+                letterSpacing: '0.05em',
+              }}
+            >
+              Número de Cédula o Token Pase QR (CAI2)
+            </label>
+
+            <div style={{ display: 'flex', gap: '10px' }}>
+              <input
+                ref={inputRef}
+                type="text"
+                className="form-input"
+                placeholder="Ej: V-10000001 o escanee el código QR..."
+                value={cedulaInput}
+                onChange={(e) => setCedulaInput(e.target.value)}
+                style={{ fontSize: '1.05rem', fontFamily: 'var(--font-mono)' }}
+              />
+              <button type="submit" className="btn-primary" disabled={loading} style={{ flexShrink: 0 }}>
+                <Search size={18} />
+                <span>{loading ? 'Verificando...' : 'Verificar'}</span>
+              </button>
+            </div>
+          </form>
+
+          {/* Ficha de Persona Verificada */}
+          {persona && (
+            <div
+              className="animate-fade-in"
+              style={{
+                marginTop: '24px',
+                paddingTop: '20px',
+                borderTop: '1px solid var(--border-subtle)',
+              }}
+            >
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: '16px', gap: '12px' }}>
+                <div>
+                  <div style={{ display: 'flex', gap: '8px', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <span
+                      className={`badge ${
+                        persona.tipoPersona === 'USUARIO' ? 'badge-empleado' : 'badge-seguridad'
+                      }`}
+                    >
+                      {persona.tipoPersona === 'USUARIO' ? `PERSONAL (${persona.rol})` : 'VISITANTE / INVITADO'}
+                    </span>
+
+                    {persona.paseFirmado && (
+                      <span className="badge badge-entrada" title="Firma HMAC-SHA256 verificada en el servidor">
+                        PASE QR VERIFICADO
+                      </span>
+                    )}
+
+                    {persona.bloqueado && (
+                      <span
+                        className="badge"
+                        style={{
+                          background: 'rgba(244, 63, 94, 0.2)',
+                          color: '#fb7185',
+                          border: '1px solid rgba(244, 63, 94, 0.45)',
+                        }}
+                      >
+                        VETADO / LISTA NEGRA
+                      </span>
+                    )}
+                  </div>
+
+                  <h2 style={{ fontSize: '1.4rem', fontWeight: 800, marginTop: '10px', color: 'var(--text-main)' }}>
+                    {persona.nombre} {persona.apellido}
+                  </h2>
+                  <p style={{ fontFamily: 'var(--font-mono)', color: 'var(--accent-cyan)', fontSize: '0.95rem', marginTop: '2px' }}>
+                    C.I: {persona.cedula}
+                  </p>
+                </div>
+
+                <div
+                  style={{
+                    padding: '8px 14px',
+                    borderRadius: '10px',
+                    background: persona.estaDentro ? 'rgba(16, 185, 129, 0.14)' : 'rgba(148, 163, 184, 0.12)',
+                    border: persona.estaDentro ? '1px solid rgba(16, 185, 129, 0.35)' : '1px solid rgba(148, 163, 184, 0.25)',
+                    color: persona.estaDentro ? '#34d399' : 'var(--text-muted)',
+                    fontSize: '0.8rem',
+                    fontWeight: 700,
+                  }}
+                >
+                  {persona.estaDentro ? 'DENTRO DE PLANTA' : 'FUERA DE PLANTA'}
+                </div>
+              </div>
+
+              {persona.tipoPersona === 'INVITADO' && (
+                <div
+                  style={{
+                    background: 'var(--bg-surface)',
+                    borderRadius: '10px',
+                    padding: '12px 14px',
+                    marginBottom: '16px',
+                    border: '1px solid var(--border-subtle)',
+                    display: 'grid',
+                    gridTemplateColumns: '1fr 1fr',
+                    gap: '10px',
+                  }}
+                >
+                  <div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                      Empresa / Procedencia
+                    </span>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-main)', fontWeight: 600, marginTop: '2px', display: 'flex', alignItems: 'center', gap: '5px' }}>
+                      <Building2 size={14} color="var(--accent-cyan)" />
+                      {persona.empresa || 'Particular'}
+                    </div>
+                  </div>
+                  <div>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                      Autorizado por
+                    </span>
+                    <div style={{ fontSize: '0.86rem', color: 'var(--text-main)', fontWeight: 600, marginTop: '2px' }}>
+                      {persona.anfitrion ? `${persona.anfitrion.nombre} ${persona.anfitrion.apellido}` : 'Administración'}
+                    </div>
+                  </div>
+                  {persona.vigenciaHasta && (
+                    <div style={{ gridColumn: '1 / -1' }}>
+                      <span style={{ fontSize: '0.72rem', color: 'var(--text-dim)', textTransform: 'uppercase' }}>
+                        Vigencia del Pase
+                      </span>
+                      <div style={{ fontSize: '0.82rem', color: 'var(--emerald)', fontWeight: 600, marginTop: '2px' }}>
+                        Válido hasta: {new Date(persona.vigenciaHasta).toLocaleString('es-VE')}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {persona.ultimoMovimiento && (
+                <div
+                  style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '8px',
+                    fontSize: '0.8rem',
+                    color: 'var(--text-muted)',
+                    marginBottom: '16px',
+                  }}
+                >
+                  <Clock size={14} />
+                  <span>
+                    Último registro: <strong>{persona.ultimoMovimiento.tipo}</strong> el{' '}
+                    {new Date(persona.ultimoMovimiento.timestamp).toLocaleString('es-ES')}
+                  </span>
+                </div>
+              )}
+
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.6fr', gap: '12px', marginBottom: '18px' }}>
+                <div>
+                  <label style={{ display: 'flex', alignItems: 'center', gap: '5px', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                    <Car size={14} color="var(--accent-cyan)" />
+                    <span>Placa Vehículo (Opcional)</span>
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ej: AB123CD"
+                    value={placaVehiculo}
+                    onChange={(e) => setPlacaVehiculo(e.target.value.toUpperCase())}
+                    style={{ fontFamily: 'var(--font-mono)', textTransform: 'uppercase' }}
+                  />
+                </div>
+
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '6px' }}>
+                    Observación de Garita (Opcional)
+                  </label>
+                  <input
+                    type="text"
+                    className="form-input"
+                    placeholder="Ej: Entrega de material, bolso revisado..."
+                    value={observacion}
+                    onChange={(e) => setObservacion(e.target.value)}
+                  />
+                </div>
+              </div>
+
+              {persona.bloqueado ? (
+                <div
+                  style={{
+                    padding: '16px',
+                    borderRadius: '12px',
+                    background: 'rgba(244, 63, 94, 0.14)',
+                    border: '1px solid rgba(244, 63, 94, 0.4)',
+                    color: '#fb7185',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '12px',
+                    fontWeight: 700,
+                    fontSize: '0.9rem',
+                  }}
+                >
+                  <ShieldAlert size={24} style={{ flexShrink: 0 }} />
+                  <div>
+                    <div>ACCESO BLOQUEADO POR SEGURIDAD</div>
+                    <div style={{ fontSize: '0.8rem', fontWeight: 500, marginTop: '2px' }}>
+                      Motivo: {persona.motivoBloqueo || 'Restricción administrativa activa.'}
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '12px' }}>
+                  <button
+                    type="button"
+                    className="btn-emerald"
+                    disabled={processing || persona.estaDentro}
+                    onClick={() => handleRegisterAccess('ENTRADA')}
+                    style={{
+                      padding: '13px',
+                      fontSize: '0.92rem',
+                      opacity: persona.estaDentro ? 0.35 : 1,
+                      cursor: persona.estaDentro ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <LogIn size={18} />
+                    <span>Registrar ENTRADA</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    className="btn-amber"
+                    disabled={processing || !persona.estaDentro}
+                    onClick={() => handleRegisterAccess('SALIDA')}
+                    style={{
+                      padding: '13px',
+                      fontSize: '0.92rem',
+                      opacity: !persona.estaDentro ? 0.35 : 1,
+                      cursor: !persona.estaDentro ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <LogOut size={18} />
+                    <span>Registrar SALIDA</span>
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+        {/* Panel Derecho: Lista en Vivo de Visitantes y Personas Dentro (GET /historial/dentro) */}
+        <div className="glass-panel" style={{ padding: '28px', display: 'flex', flexDirection: 'column' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '16px', flexWrap: 'wrap', gap: '10px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <UserCheck size={22} color="var(--accent-emerald)" />
+              <div>
+                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                  Personas y Visitantes Dentro ({personasDentro.length})
+                </h3>
+                <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                  Personal y visitantes con entrada activa sin salida registrada
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={loadPersonasDentro}
+              className="btn-ghost"
+              style={{ padding: '6px 12px', fontSize: '0.78rem' }}
+            >
+              <RefreshCw size={14} />
+              <span>Actualizar</span>
+            </button>
+          </div>
+
+          <div style={{ position: 'relative', marginBottom: '16px' }}>
+            <Search size={16} color="var(--text-dim)" style={{ position: 'absolute', left: '12px', top: '50%', transform: 'translateY(-50%)' }} />
+            <input
+              type="text"
+              className="form-input"
+              style={{ paddingLeft: '36px', fontSize: '0.86rem' }}
+              placeholder="Buscar en planta por cédula, nombre o empresa..."
+              value={dentroSearch}
+              onChange={(e) => setDentroSearch(e.target.value)}
+            />
+          </div>
+
+          <div style={{ overflowX: 'auto', flex: 1 }}>
+            <table className="forti-table" style={{ width: '100%' }}>
+              <thead>
+                <tr>
+                  <th>Cédula</th>
+                  <th>Nombre Completo</th>
+                  <th>Clasificación</th>
+                  <th>Hora Entrada</th>
+                  <th style={{ textAlign: 'right' }}>Acción Rápida</th>
+                </tr>
+              </thead>
+              <tbody>
+                {loadingDentro ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-dim)' }}>
+                      Cargando lista de personas en planta...
+                    </td>
+                  </tr>
+                ) : filteredPersonasDentro.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-dim)' }}>
+                      No hay personas dentro de las instalaciones que coincidan con el filtro.
+                    </td>
+                  </tr>
+                ) : (
+                  filteredPersonasDentro.map((item) => (
+                    <tr key={`${item.tipoPersona}-${item.id}`}>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>
+                        {item.cedula}
+                      </td>
+                      <td>
+                        <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                          {item.nombre} {item.apellido}
+                        </div>
+                        <div style={{ fontSize: '0.74rem', color: 'var(--text-dim)' }}>{item.detalle}</div>
+                      </td>
+                      <td>
+                        <span className={`badge ${item.tipoPersona === 'INVITADO' ? 'badge-seguridad' : 'badge-empleado'}`}>
+                          {item.tipoPersona}
+                        </span>
+                      </td>
+                      <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem', color: 'var(--text-muted)' }}>
+                        {new Date(item.horaEntrada).toLocaleTimeString('es-VE', {
+                          hour: '2-digit',
+                          minute: '2-digit',
+                        })}
+                      </td>
+                      <td style={{ textAlign: 'right' }}>
+                        <button
+                          type="button"
+                          className="btn-ghost"
+                          style={{ padding: '5px 10px', fontSize: '0.75rem', color: 'var(--amber)', borderColor: 'rgba(245, 158, 11, 0.3)' }}
+                          onClick={() => executeLookupByCode(item.cedula)}
+                          title="Seleccionar en el escáner para registrar su salida"
+                        >
+                          <LogOut size={13} />
+                          <span>Seleccionar</span>
+                        </button>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
     </div>
   );
 };
