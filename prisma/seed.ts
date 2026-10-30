@@ -6,7 +6,29 @@ import * as bcrypt from 'bcryptjs';
 // eslint-disable-next-line @typescript-eslint/no-var-requires
 const csv = require('csv-parser');
 
-const prisma = new PrismaClient();
+const TEMPLATE_TOKENS = ['reemplazar', 'cambiarclave', 'cambiarporclave', 'changeme'];
+
+export const DEFAULT_INITIAL_ADMIN_CEDULA = 'V-10000001';
+export const DEFAULT_INITIAL_ADMIN_EMAIL = 'admin@porware.com';
+export const DEFAULT_INITIAL_SECURITY_CEDULA = 'V-20000002';
+export const DEFAULT_INITIAL_SECURITY_EMAIL = 'garita@porware.com';
+
+export function validateSeedSecret(value: string | undefined, varName: string, minLength = 12): string {
+  if (!value || !value.trim()) {
+    throw new Error(`FATAL: ${varName} es obligatoria y no puede estar vacía.`);
+  }
+  const trimmed = value.trim();
+  const lower = trimmed.toLowerCase();
+  if (TEMPLATE_TOKENS.some((t) => lower.includes(t))) {
+    throw new Error(
+      `FATAL: ${varName} contiene un texto de plantilla ("reemplazar", "CambiarClave" o "changeme"). Defina una clave real.`,
+    );
+  }
+  if (trimmed.length < minLength) {
+    throw new Error(`FATAL: ${varName} debe tener al menos ${minLength} caracteres (actual: ${trimmed.length}).`);
+  }
+  return trimmed;
+}
 
 interface CsvUserRow {
   cedula?: string;
@@ -29,9 +51,6 @@ interface CsvUserRow {
   [key: string]: string | undefined;
 }
 
-/**
- * Normaliza el rol del usuario a los roles admitidos por Prisma (ADMINISTRADOR, EMPLEADO, SEGURIDAD)
- */
 function normalizeRole(rawRole?: string): Role {
   if (!rawRole) return Role.EMPLEADO;
   const upper = rawRole.toUpperCase().trim();
@@ -44,10 +63,11 @@ function normalizeRole(rawRole?: string): Role {
   return Role.EMPLEADO;
 }
 
-/**
- * Procesa e inserta usuarios desde un archivo CSV con Bcrypt
- */
-async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
+async function migrateUsersFromCsv(
+  prisma: PrismaClient,
+  csvFilePath: string,
+  env: NodeJS.ProcessEnv,
+): Promise<number> {
   console.log(`\n📂 Leyendo archivo CSV desde: ${csvFilePath}`);
 
   return new Promise((resolve, reject) => {
@@ -64,13 +84,18 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
           for (const row of rows) {
             const cedula = (row.cedula || row.ci || row.rut || row.id || '').trim();
             if (!cedula) {
-              console.warn(`⚠️ Saltando fila sin cédula/identificación:`, row);
+              continue;
+            }
+
+            const existing = await prisma.usuario.findUnique({ where: { cedula } });
+            if (existing) {
+              processed++;
               continue;
             }
 
             const nombre = (row.nombre || row.first_name || 'Sin Nombre').trim();
             const apellido = (row.apellido || row.last_name || 'Sin Apellido').trim();
-            const email = (row.email || row.correo || `${cedula}@cai.local`).trim().toLowerCase();
+            const email = (row.email || row.correo || `${cedula}@porware.com`).trim().toLowerCase();
             const rol = normalizeRole(row.rol || row.role || row.tipo);
 
             let initialPassword = '';
@@ -78,21 +103,18 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
             let debeCambiarClave = true;
 
             if (rol === Role.ADMINISTRADOR) {
-              initialPassword = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
-              registroCompletado = true;
-              debeCambiarClave = !process.env.INITIAL_ADMIN_PASSWORD;
-              if (!process.env.INITIAL_ADMIN_PASSWORD) {
-                console.log(`🔑 Contraseña generada para Administrador (${email}): ${initialPassword}`);
-              }
-            } else if (rol === Role.SEGURIDAD) {
-              initialPassword = process.env.INITIAL_SECURITY_PASSWORD || crypto.randomBytes(16).toString('hex');
+              initialPassword = env.INITIAL_ADMIN_PASSWORD
+                ? validateSeedSecret(env.INITIAL_ADMIN_PASSWORD, 'INITIAL_ADMIN_PASSWORD', 12)
+                : crypto.randomBytes(16).toString('hex');
               registroCompletado = true;
               debeCambiarClave = true;
-              if (!process.env.INITIAL_SECURITY_PASSWORD) {
-                console.log(`🔑 Contraseña generada para Guardia (${email}): ${initialPassword}`);
-              }
+            } else if (rol === Role.SEGURIDAD) {
+              initialPassword = env.INITIAL_SECURITY_PASSWORD
+                ? validateSeedSecret(env.INITIAL_SECURITY_PASSWORD, 'INITIAL_SECURITY_PASSWORD', 12)
+                : crypto.randomBytes(16).toString('hex');
+              registroCompletado = true;
+              debeCambiarClave = true;
             } else {
-              // EMPLEADO: Se genera hash inaccesible temporal. Debe realizar auto-registro (/auth/complete-registro)
               initialPassword = crypto.randomBytes(32).toString('hex');
               registroCompletado = false;
               debeCambiarClave = false;
@@ -100,15 +122,8 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
 
             const hashedPassword = await bcrypt.hash(initialPassword, 10);
 
-            await prisma.usuario.upsert({
-              where: { cedula },
-              update: {
-                nombre,
-                apellido,
-                email,
-                rol,
-              },
-              create: {
+            await prisma.usuario.create({
+              data: {
                 cedula,
                 nombre,
                 apellido,
@@ -121,7 +136,6 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
             });
 
             processed++;
-            console.log(`✅ [${processed}/${rows.length}] Usuario migrado: ${cedula} - ${nombre} ${apellido} (${rol})`);
           }
 
           resolve(processed);
@@ -133,42 +147,90 @@ async function migrateUsersFromCsv(csvFilePath: string): Promise<number> {
   });
 }
 
-async function ensureBootstrapAdmin() {
-  const adminCount = await prisma.usuario.count({
-    where: { rol: Role.ADMINISTRADOR },
-  });
+export async function ensureBootstrapUsers(
+  prisma: PrismaClient,
+  env: NodeJS.ProcessEnv = process.env,
+): Promise<{ adminCreated: boolean; securityCreated: boolean }> {
+  const adminCedula = (env.INITIAL_ADMIN_CEDULA || DEFAULT_INITIAL_ADMIN_CEDULA).trim();
+  const adminEmail = (env.INITIAL_ADMIN_EMAIL || DEFAULT_INITIAL_ADMIN_EMAIL).trim().toLowerCase();
+  const securityCedula = (env.INITIAL_SECURITY_CEDULA || DEFAULT_INITIAL_SECURITY_CEDULA).trim();
+  const securityEmail = (env.INITIAL_SECURITY_EMAIL || DEFAULT_INITIAL_SECURITY_EMAIL).trim().toLowerCase();
 
-  if (adminCount > 0) {
-    console.log(`ℹ️ Ya existe al menos un usuario ADMINISTRADOR registrado (${adminCount}).`);
-    return;
-  }
+  const rawAdminPass = env.INITIAL_ADMIN_PASSWORD;
+  const adminPlainPass = rawAdminPass
+    ? validateSeedSecret(rawAdminPass, 'INITIAL_ADMIN_PASSWORD', 12)
+    : env.NODE_ENV === 'production'
+      ? validateSeedSecret(rawAdminPass, 'INITIAL_ADMIN_PASSWORD', 12)
+      : crypto.randomBytes(16).toString('hex');
 
-  const initialAdminPass = process.env.INITIAL_ADMIN_PASSWORD || crypto.randomBytes(16).toString('hex');
-  const defaultAdminPass = await bcrypt.hash(initialAdminPass, 10);
-
-  await prisma.usuario.upsert({
-    where: { cedula: 'V-00000000' },
-    update: {},
-    create: {
-      cedula: 'V-00000000',
-      nombre: 'Administrador',
-      apellido: 'Sistema',
-      email: 'admin@cai.local',
-      password: defaultAdminPass,
-      rol: Role.ADMINISTRADOR,
-      registroCompletado: true,
-      debeCambiarClave: !process.env.INITIAL_ADMIN_PASSWORD,
+  let adminCreated = false;
+  const existingAdmin = await prisma.usuario.findFirst({
+    where: {
+      OR: [{ cedula: adminCedula }, { email: adminEmail }],
     },
   });
 
-  console.log(`✅ Usuario Administrador inicial creado: admin@cai.local (V-00000000)`);
-  if (!process.env.INITIAL_ADMIN_PASSWORD) {
-    console.log(`🔑 Clave temporal generada para Administrador: ${initialAdminPass}`);
+  if (!existingAdmin) {
+    const hashedAdminPass = await bcrypt.hash(adminPlainPass, 10);
+    await prisma.usuario.create({
+      data: {
+        cedula: adminCedula,
+        nombre: 'Administrador',
+        apellido: 'Sistema',
+        email: adminEmail,
+        password: hashedAdminPass,
+        rol: Role.ADMINISTRADOR,
+        registroCompletado: true,
+        debeCambiarClave: true,
+      },
+    });
+    adminCreated = true;
+    console.log(`✅ Usuario Administrador inicial creado: ${adminEmail} (${adminCedula}) [debeCambiarClave=true]`);
+  } else {
+    console.log(`ℹ️ Administrador inicial (${adminCedula} / ${adminEmail}) ya existe; se preserva su contraseña actual.`);
   }
+
+  let securityCreated = false;
+  if (env.INITIAL_SECURITY_PASSWORD && env.INITIAL_SECURITY_PASSWORD.trim()) {
+    const securityPlainPass = validateSeedSecret(env.INITIAL_SECURITY_PASSWORD, 'INITIAL_SECURITY_PASSWORD', 12);
+    const existingSecurity = await prisma.usuario.findFirst({
+      where: {
+        OR: [{ cedula: securityCedula }, { email: securityEmail }],
+      },
+    });
+
+    if (!existingSecurity) {
+      const hashedSecurityPass = await bcrypt.hash(securityPlainPass, 10);
+      await prisma.usuario.create({
+        data: {
+          cedula: securityCedula,
+          nombre: 'Operador',
+          apellido: 'Garita',
+          email: securityEmail,
+          password: hashedSecurityPass,
+          rol: Role.SEGURIDAD,
+          registroCompletado: true,
+          debeCambiarClave: true,
+        },
+      });
+      securityCreated = true;
+      console.log(`✅ Usuario Vigilante inicial creado: ${securityEmail} (${securityCedula}) [debeCambiarClave=true]`);
+    } else {
+      console.log(`ℹ️ Vigilante inicial (${securityCedula} / ${securityEmail}) ya existe; se preserva su contraseña actual.`);
+    }
+  }
+
+  return { adminCreated, securityCreated };
 }
 
-async function main() {
+export async function runSeed(
+  prisma: PrismaClient,
+  env: NodeJS.ProcessEnv = process.env,
+) {
   console.log('🚀 Iniciando script de siembra y aprovisionamiento (Seed)...');
+
+  // Siempre garantizar la creación idempotente del Administrador inicial y (si aplica) del Vigilante
+  const bootstrapResult = await ensureBootstrapUsers(prisma, env);
 
   const possiblePaths = [
     path.join(process.cwd(), 'prisma', 'data', 'usuarios.csv'),
@@ -179,22 +241,24 @@ async function main() {
 
   const selectedPath = possiblePaths.find((p) => fs.existsSync(p));
 
-  if (selectedPath && process.env.SEED_SKIP_CSV !== 'true') {
-    const totalMigrated = await migrateUsersFromCsv(selectedPath);
-    console.log(`\n🎉 Migración de usuarios desde CSV completada. Total: ${totalMigrated} usuarios.`);
+  if (selectedPath && env.SEED_SKIP_CSV !== 'true') {
+    const totalMigrated = await migrateUsersFromCsv(prisma, selectedPath, env);
+    console.log(`\n🎉 Migración de usuarios desde CSV completada. Total procesados: ${totalMigrated}.`);
   } else {
-    console.log('ℹ️ Sin archivo CSV de migración o migración omitida. Verificando administrador inicial...');
+    console.log('ℹ️ Sin archivo CSV adicional de migración o migración omitida.');
   }
 
-  // Garantizar siempre que exista al menos un ADMINISTRADOR operativo
-  await ensureBootstrapAdmin();
+  return bootstrapResult;
 }
 
-main()
-  .catch((e) => {
-    console.error('❌ Error durante la ejecución del seed:', e);
-    process.exit(1);
-  })
-  .finally(async () => {
-    await prisma.$disconnect();
-  });
+if (require.main === module) {
+  const prismaClient = new PrismaClient();
+  runSeed(prismaClient, process.env)
+    .catch((e) => {
+      console.error('❌ Error durante la ejecución del seed:', e);
+      process.exit(1);
+    })
+    .finally(async () => {
+      await prismaClient.$disconnect();
+    });
+}

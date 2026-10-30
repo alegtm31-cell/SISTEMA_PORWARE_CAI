@@ -23,11 +23,18 @@ Este documento describe el procedimiento paso a paso para desplegar el sistema *
    - `POSTGRES_PASSWORD=<clave_robusta_postgresql>`
    - `POSTGRES_DB=porware_cai`
    - `DATABASE_URL="postgresql://postgres:<clave_robusta_postgresql>@postgres:5432/porware_cai?schema=public"`
-   - `JWT_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`)
-   - `QR_HMAC_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`)
+   - `JWT_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`; mínimo 32 caracteres y sin palabras de plantilla como `"reemplazar"`, `"CambiarClave"` o `"changeme"`)
+   - `QR_HMAC_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`; sin textos de plantilla)
    - `CORS_ORIGINS="https://cai.empresa.local,https://localhost"`
-   - `INITIAL_ADMIN_PASSWORD=<clave_inicial_admin>`
-   - `INITIAL_SECURITY_PASSWORD=<clave_inicial_garita>`
+   - `INITIAL_ADMIN_CEDULA="V-10000001"`
+   - `INITIAL_ADMIN_EMAIL="admin@porware.com"`
+   - `INITIAL_ADMIN_PASSWORD=<clave_inicial_admin>` (mínimo 12 caracteres, sin textos de plantilla)
+   - `INITIAL_SECURITY_CEDULA="V-20000002"`
+   - `INITIAL_SECURITY_EMAIL="garita@porware.com"`
+   - `INITIAL_SECURITY_PASSWORD=<clave_inicial_garita>` (opcional; mínimo 12 caracteres si se define)
+
+> [!IMPORTANT]
+> El backend y el seed validan los secretos al arrancar y **abortan el inicio** si `JWT_SECRET`, `QR_HMAC_SECRET`, `POSTGRES_PASSWORD` o `INITIAL_ADMIN_PASSWORD` contienen textos de plantilla (`reemplazar`, `CambiarClave`, `changeme`) o si no cumplen la longitud mínima (`JWT_SECRET >= 32` caracteres, `INITIAL_ADMIN_PASSWORD >= 12` caracteres).
 
 ---
 
@@ -59,17 +66,38 @@ Los certificados se alojan en `./nginx/certs/cai.crt` y `./nginx/certs/cai.key` 
    ```
    Al iniciar, el contenedor ejecuta automáticamente:
    - `npx prisma migrate deploy` (aplica las migraciones versionadas en `prisma/migrations/`).
-   - `node dist/prisma/seed.js` (crea el usuario `ADMINISTRADOR` inicial con `INITIAL_ADMIN_PASSWORD` y `debeCambiarClave: true` si la base de datos aún no tiene administrador).
+   - `node dist/prisma/seed.js` (crea de forma idempotente el usuario `ADMINISTRADOR` inicial con `INITIAL_ADMIN_CEDULA` / `INITIAL_ADMIN_EMAIL` / `INITIAL_ADMIN_PASSWORD` y, si está definida `INITIAL_SECURITY_PASSWORD`, el usuario `SEGURIDAD` con `INITIAL_SECURITY_CEDULA` / `INITIAL_SECURITY_EMAIL`, ambos con `debeCambiarClave: true` y `registroCompletado: true`, sin requerir `usuarios.csv` y sin sobrescribir contraseñas existentes).
    - `node dist/main` (levanta la API NestJS en el puerto interno `3000`).
-3. Verificar el estado de salud del sistema:
-   ```bash
-   curl -k https://localhost/api/v1/health
-   ```
-   Debe responder `"status": "ok"` y `"database": "conectado"`.
+3. Verificar los endpoints de salud del sistema (`@Public()`):
+   - **Liveness (`GET /api/v1/health/live`)**: usado por el `HEALTHCHECK` del `Dockerfile`. Comprueba únicamente que el proceso HTTP de NestJS responde (`200 OK`), sin consultar PostgreSQL, evitando reinicios en cascada del contenedor durante mantenimientos breves de base de datos.
+     ```bash
+     curl -k https://localhost/api/v1/health/live
+     ```
+   - **Readiness / Estado Completo (`GET /api/v1/health`)**: ejecuta `SELECT 1` contra PostgreSQL y devuelve `200 OK` (`"database": "conectado"`) o `503 Service Unavailable` (`"database": "desconectado"`) si la base de datos falla.
+     ```bash
+     curl -k https://localhost/api/v1/health
+     ```
 4. Primer ingreso:
    - Abra `https://localhost` (o el dominio configurado).
-   - Inicie sesión con `V-10000001` (o `admin@porware.com`) y la contraseña definida en `INITIAL_ADMIN_PASSWORD`.
+   - Inicie sesión con `V-10000001` (o `admin@porware.com`, según `INITIAL_ADMIN_CEDULA` / `INITIAL_ADMIN_EMAIL`) y la contraseña definida en `INITIAL_ADMIN_PASSWORD`.
    - El sistema mostrará la pantalla obligatoria de **Cambio de Contraseña** antes de habilitar cualquier módulo.
+
+---
+
+## 4.1. Adopción de Migraciones en una Base de Datos Existente (Creada con `prisma db push`)
+
+Si la base de datos de un entorno existente fue inicializada previamente con `prisma db push` y ya contiene las tablas del esquema inicial, marque la migración inicial como aplicada antes de ejecutar `prisma migrate deploy`:
+
+```bash
+# 1. Marcar la migración inicial como ya aplicada sin recrear tablas existentes
+npx prisma migrate resolve --applied 20261029000000_init
+
+# 2. Aplicar cualquier migración posterior (p. ej. módulo de Eventos)
+npx prisma migrate deploy
+
+# 3. Verificar que el estado de migraciones esté sincronizado
+npx prisma migrate status
+```
 
 ---
 

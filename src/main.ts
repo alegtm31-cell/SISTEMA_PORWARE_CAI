@@ -3,8 +3,10 @@ import { ValidationPipe } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
+import { validateRuntimeSecrets } from './common/utils/env-validation.util';
 
 async function bootstrap() {
+  validateRuntimeSecrets(process.env);
   const app = await NestFactory.create(AppModule);
 
   // Habilitar trust proxy para leer la IP real del cliente detrás de Nginx / proxy inverso

@@ -33,12 +33,16 @@ services:
       NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-porware_cai}?schema=public
-      JWT_SECRET: ${JWT_SECRET:-porware_cai_dev_jwt_secret_change_in_prod}
+      JWT_SECRET: ${JWT_SECRET:-porware_cai_dev_jwt_secret_key_32_chars_min_2026}
       JWT_EXPIRATION: ${JWT_EXPIRATION:-12h}
-      QR_HMAC_SECRET: ${QR_HMAC_SECRET:-porware_cai_dev_qr_hmac_secret}
+      QR_HMAC_SECRET: ${QR_HMAC_SECRET:-porware_cai_dev_qr_hmac_secret_key_2026}
       CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
-      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-AdminCai2026!}
-      INITIAL_SECURITY_PASSWORD: ${INITIAL_SECURITY_PASSWORD:-GaritaCai2026!}
+      INITIAL_ADMIN_CEDULA: ${INITIAL_ADMIN_CEDULA:-V-10000001}
+      INITIAL_ADMIN_EMAIL: ${INITIAL_ADMIN_EMAIL:-admin@porware.com}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-AdminCaiProd2026!}
+      INITIAL_SECURITY_CEDULA: ${INITIAL_SECURITY_CEDULA:-V-20000002}
+      INITIAL_SECURITY_EMAIL: ${INITIAL_SECURITY_EMAIL:-garita@porware.com}
+      INITIAL_SECURITY_PASSWORD: ${INITIAL_SECURITY_PASSWORD:-GaritaCaiProd2026!}
 
 volumes:
   postgres_data:
