@@ -10,6 +10,7 @@ import { HistorialModule } from './historial/historial.module';
 import { NoticiasModule } from './noticias/noticias.module';
 import { AuditoriaModule } from './auditoria/auditoria.module';
 import { HealthModule } from './health/health.module';
+import { EventosModule } from './eventos/eventos.module';
 import { LoggingMiddleware } from './common/middleware/logging.middleware';
 
 @Module({
@@ -29,6 +30,7 @@ import { LoggingMiddleware } from './common/middleware/logging.middleware';
     InvitadosModule,
     HistorialModule,
     NoticiasModule,
+    EventosModule,
   ],
   providers: [
     {
