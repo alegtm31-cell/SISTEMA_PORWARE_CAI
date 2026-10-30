@@ -1,56 +1,63 @@
-# --- Etapa 1: Construcción (Builder) ---
-FROM node:20-alpine AS builder
+# ==============================================================================
+# ETAPA 1: Builder (Compilación de TypeScript, NestJS, Seed JS y Cliente Prisma)
+# ==============================================================================
+FROM node:22-alpine AS builder
 
-WORKDIR /usr/src/app
+RUN apk add --no-cache openssl libc6-compat
 
-RUN apk add --no-cache openssl
+WORKDIR /app
 
-# Copiar archivos de dependencias y esquema Prisma
 COPY package*.json ./
 COPY prisma ./prisma/
 
-# Instalar dependencias para compilación
-RUN npm install
+# Instalación limpia y determinista de dependencias
+RUN npm ci
 
-# Generar cliente de Prisma
+# Generación de cliente Prisma tipado
 RUN npx prisma generate
 
-# Copiar código fuente y compilar
+# Copia del código fuente y compilación a producción (dist/main.js + dist/prisma/seed.js)
 COPY . .
 RUN npm run build
 
-# --- Etapa 2: Entorno de Ejecución Endurecido (Runner) ---
-FROM node:20-alpine AS runner
+# ==============================================================================
+# ETAPA 2: Runner (Imagen ligera y endurecida para Producción en Node 22 LTS)
+# ==============================================================================
+FROM node:22-alpine AS runner
 
-WORKDIR /usr/src/app
+# curl para healthchecks de Docker y openssl requerido por el motor de Prisma
+RUN apk add --no-cache openssl curl
 
-# Instalar librerías de sistema y wget para healthcheck
-RUN apk add --no-cache openssl wget
+# Crear usuario no-root por seguridad
+RUN addgroup --system --gid 1001 nodejs && \
+    adduser --system --uid 1001 nestjs
+
+WORKDIR /app
 
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copiar definiciones y esquema
-COPY package*.json ./
-COPY prisma ./prisma/
+COPY --from=builder --chown=nestjs:nodejs /app/package*.json ./
+COPY --from=builder --chown=nestjs:nodejs /app/prisma ./prisma/
 
-# Instalar únicamente dependencias de producción y prisma para db push
-RUN npm install --omit=dev && npm install prisma
+# Instalar solo dependencias de producción + CLI de Prisma fijada en 5.22.0 para migrate deploy
+RUN npm ci --omit=dev && \
+    npm install --no-save prisma@5.22.0 && \
+    npx prisma generate && \
+    npm cache clean --force && \
+    chown -R nestjs:nodejs /app/node_modules
 
-# Copiar cliente generado de Prisma y código compilado
-COPY --from=builder /usr/src/app/node_modules/.prisma ./node_modules/.prisma
-COPY --from=builder /usr/src/app/dist ./dist
+# Copiar artefactos compilados (incluye dist/main.js y dist/prisma/seed.js)
+COPY --from=builder --chown=nestjs:nodejs /app/dist ./dist
 
-# Seguridad: Asignar permisos al usuario no-root 'node'
-RUN chown -R node:node /usr/src/app
-
-USER node
+# Cambiar a usuario sin privilegios de root
+USER nestjs
 
 EXPOSE 3000
 
-# Healthcheck nativo verificando el estado del backend y conexión a PostgreSQL
-HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD wget --no-verbose --tries=1 --spider http://localhost:3000/api/v1/health || exit 1
+# Healthcheck nativo del contenedor apuntando al endpoint real de salud
+HEALTHCHECK --interval=30s --timeout=5s --start-period=20s --retries=3 \
+  CMD curl -f http://localhost:3000/api/v1/health/live || exit 1
 
-# Ejecutar migraciones ligeras y levantar el servidor con node compilado (sin ts-node en prod)
-CMD ["sh", "-c", "npx prisma db push && node dist/main"]
+# Aplica migraciones versionadas, ejecuta seed compilado (crea primer admin si BD vacía) e inicia NestJS
+CMD ["sh", "-c", "npx prisma migrate deploy && node dist/prisma/seed.js && node dist/main"]

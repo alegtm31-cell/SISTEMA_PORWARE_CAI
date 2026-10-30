@@ -1,39 +1,36 @@
 @echo off
-setlocal enabledelayedexpansion
+REM ==============================================================================
+REM Script de Restauracion de Base de Datos - Porware CAI PostgreSQL (Windows)
+REM Uso: scripts\restore.bat backups\porware_cai_YYYYMMDD_HHMMSS.sql [contenedor]
+REM ==============================================================================
 
 if "%~1"=="" (
-    echo [ERROR] Debe indicar la ruta del archivo de respaldo a restaurar.
-    echo Uso: restore.bat ..\backups\cai_db_backup_XXXXXXXX_XXXXXX.sql
+    echo [ERROR] Debe especificar la ruta del archivo de respaldo .sql
+    echo Uso: scripts\restore.bat backups\porware_cai_YYYYMMDD_HHMMSS.sql [nombre_contenedor]
     exit /b 1
 )
 
 set BACKUP_FILE=%~1
+set CONTAINER_NAME=%2
+if "%CONTAINER_NAME%"=="" set CONTAINER_NAME=porware_cai_db_prod
+set DB_USER=postgres
+set DB_NAME=porware_cai
 
 if not exist "%BACKUP_FILE%" (
-    echo [ERROR] El archivo especificado no existe: %BACKUP_FILE%
+    echo [ERROR] El archivo "%BACKUP_FILE%" no existe.
     exit /b 1
 )
 
-echo ===================================================
-echo     RESTAURACION DE BASE DE DATOS CAI
-echo ===================================================
-echo Archivo a restaurar: %BACKUP_FILE%
-echo.
-echo ATENCION: Esta accion sobrescribira los datos existentes en cai_db.
-set /p CONFIRM="Desea continuar? (S/N): "
-if /i not "%CONFIRM%"=="S" (
-    echo Restauracion cancelada por el usuario.
-    exit /b 0
+echo Restaurando base de datos %DB_NAME% desde %BACKUP_FILE%...
+type "%BACKUP_FILE%" | docker exec -i %CONTAINER_NAME% psql -v ON_ERROR_STOP=1 -U %DB_USER% -d %DB_NAME% 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo Contenedor %CONTAINER_NAME% no disponible, intentando con porware_cai_db...
+    type "%BACKUP_FILE%" | docker exec -i porware_cai_db psql -v ON_ERROR_STOP=1 -U %DB_USER% -d %DB_NAME%
 )
 
-echo Restaurando base de datos PostgreSQL...
-type "%BACKUP_FILE%" | docker exec -i cai_postgres psql -U postgres -d cai_db
-
 if %ERRORLEVEL% EQU 0 (
-    echo.
-    echo [OK] Base de datos restaurada exitosamente desde: %BACKUP_FILE%
+    echo [OK] Restauracion completada exitosamente.
 ) else (
-    echo.
-    echo [ERROR] Ocurrio un error durante la restauracion.
+    echo [ERROR] Ocurrio un fallo durante la restauracion. Verifique que Docker PostgreSQL este activo.
     exit /b 1
 )

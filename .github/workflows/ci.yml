@@ -1,14 +1,14 @@
-name: CI - Integración Continua Sistema CAI
+name: CI - Porware CAI (Verificación de Producción)
 
 on:
   push:
-    branches: [ main ]
+    branches: [main, master]
   pull_request:
-    branches: [ main ]
+    branches: [main, master]
 
 jobs:
   build-and-test:
-    name: Compilación, Lint y Pruebas Automatizadas
+    name: Build, Lint, Audit & Tests (Backend + Frontend)
     runs-on: ubuntu-latest
 
     services:
@@ -16,8 +16,8 @@ jobs:
         image: postgres:16-alpine
         env:
           POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgrespassword
-          POSTGRES_DB: cai_db
+          POSTGRES_PASSWORD: ci_password_seguro
+          POSTGRES_DB: porware_cai_test
         ports:
           - 5432:5432
         options: >-
@@ -26,32 +26,54 @@ jobs:
           --health-timeout 5s
           --health-retries 5
 
+    env:
+      DATABASE_URL: postgresql://postgres:ci_password_seguro@localhost:5432/porware_cai_test?schema=public
+      JWT_SECRET: ci_secret_key_for_automated_testing_only_2026_porware_cai
+      QR_HMAC_SECRET: ci_qr_hmac_secret_key_for_automated_testing_2026_porware_cai
+      PORT: 3000
+
     steps:
-      - name: Checkout de Código Fuente
+      - name: Checkout del repositorio
         uses: actions/checkout@v4
 
-      - name: Instalar Node.js LTS (v20)
+      - name: Configurar Node.js 22 LTS
         uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: 'npm'
 
-      - name: Instalar Dependencias del Backend
-        run: npm ci || npm install
+      - name: Instalar dependencias del Backend (npm ci estricto)
+        run: npm ci
 
-      - name: Generar Cliente de Prisma ORM
-        run: npx prisma generate
-        env:
-          DATABASE_URL: "postgresql://postgres:postgrespassword@localhost:5432/cai_db?schema=public"
+      - name: Auditoría de seguridad de dependencias de producción Backend
+        run: npm audit --omit=dev --audit-level=critical
 
-      - name: Compilar Backend (NestJS)
+      - name: Generar cliente Prisma y aplicar migraciones versionadas
+        run: |
+          npx prisma generate
+          npx prisma migrate deploy
+
+      - name: Verificar tipado y lint del Backend
+        run: npm run lint
+
+      - name: Compilar Backend NestJS y Seed de Producción
         run: npm run build
 
-      - name: Ejecutar Batería de Pruebas Automatizadas (Fase 3)
+      - name: Ejecutar suite de pruebas automáticas (RBAC, Anti-Passback, QR HMAC, Auditoría)
         run: npm test
 
-      - name: Instalar y Compilar Frontend (Vite + React)
+      - name: Instalar dependencias del Frontend (npm ci estricto)
         working-directory: ./frontend
-        run: |
-          npm ci || npm install
-          npm run build
+        run: npm ci
+
+      - name: Auditoría de seguridad de dependencias de producción Frontend
+        working-directory: ./frontend
+        run: npm audit --omit=dev --audit-level=critical
+
+      - name: Ejecutar linter del Frontend (oxlint)
+        working-directory: ./frontend
+        run: npm run lint
+
+      - name: Compilar Frontend de Producción (TypeScript + Vite)
+        working-directory: ./frontend
+        run: npm run build

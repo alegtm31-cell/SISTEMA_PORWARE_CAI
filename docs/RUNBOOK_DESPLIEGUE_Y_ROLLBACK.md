@@ -1,143 +1,115 @@
-# 🚀 Runbook de Despliegue, Actualización y Rollback
-**Sistema de Control de Acceso e Identificación (CAI v2)**  
-*Documento Operativo de Puesta en Producción - Fase 5*
+# Runbook de Despliegue en Producción y Rollback — Sistema PORWARE CAI
+
+Este documento describe el procedimiento paso a paso para desplegar el sistema **PORWARE CAI** en producción usando `docker-compose.prod.yml`, migraciones versionadas de Prisma (`prisma migrate deploy`), certificados TLS y Node 22 LTS.
 
 ---
 
-## 1. Requisitos Previos del Servidor de Garita / Datacenter
+## 1. Requisitos Previos en el Servidor
 
-| Componente | Requisito Mínimo Recomendado |
-| :--- | :--- |
-| **Sistema Operativo** | Ubuntu Server 22.04/24.04 LTS, Debian 12 o Windows Server 2022 |
-| **Motor de Contenedores** | Docker Engine 24.0+ y Docker Compose v2.20+ |
-| **Hardware** | 2 vCPU, 4 GB Memoria RAM, 40 GB Almacenamiento SSD |
-| **Red** | IP Estática en LAN de Garita (ej. `192.168.10.8`), puertos `80` (HTTP) y `443` (HTTPS) abiertos en firewall local |
-| **Certificados TLS** | Certificados SSL/TLS válidos o autofirmados de confianza para garita colocados en `nginx/certs/` |
+- **Docker Engine** 24+ y **Docker Compose** v2+.
+- **OpenSSL** instalado para generar certificados TLS autofirmados (o certificados corporativos emitidos por su CA interna).
+- Puertos `80` (redirección HTTP -> HTTPS) y `443` (HTTPS Nginx Reverse Proxy + SPA) abiertos en el firewall local.
 
 ---
 
-## 2. Configuración de Entorno de Producción (`.env`)
+## 2. Configuración de Variables de Entorno (`.env`)
 
-Cree o valide el archivo `.env` en la raíz del proyecto. **Nunca utilice valores por defecto en producción**:
+1. Copie la plantilla `.env.example` a `.env` en la raíz del proyecto:
+   ```bash
+   cp .env.example .env
+   ```
+2. Edite `.env` y defina valores seguros y únicos para producción:
+   - `POSTGRES_USER=postgres`
+   - `POSTGRES_PASSWORD=<clave_robusta_postgresql>`
+   - `POSTGRES_DB=porware_cai`
+   - `DATABASE_URL="postgresql://postgres:<clave_robusta_postgresql>@postgres:5432/porware_cai?schema=public"`
+   - `JWT_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`)
+   - `QR_HMAC_SECRET=<cadena_hex_64_caracteres>` (generar con `openssl rand -hex 32`)
+   - `CORS_ORIGINS="https://cai.empresa.local,https://localhost"`
+   - `INITIAL_ADMIN_PASSWORD=<clave_inicial_admin>`
+   - `INITIAL_SECURITY_PASSWORD=<clave_inicial_garita>`
 
-```env
-# URL de conexión interna a PostgreSQL (red aislada de Docker)
-DATABASE_URL="postgresql://cai_admin:ClaveSeguraProd2026!@postgres:5432/cai_prod_db?schema=public"
+---
 
-# Puerto interno del API
-PORT=3000
+## 3. Generación de Certificados TLS (Sin Versionarlos en Git)
 
-# Secreto de firma JWT (mínimo 64 caracteres criptográficamente seguros)
-JWT_SECRET="cai_prod_jwt_super_secret_key_8f3b2a9e1d0c4b5a6f7e8d9c0b1a2e3f4"
-JWT_EXPIRATION="8h"
+Los certificados se alojan en `./nginx/certs/cai.crt` y `./nginx/certs/cai.key` (excluidos por `.gitignore`).
 
-# Zona horaria del servidor
-TZ="America/Caracas"
+- **En Linux / macOS**:
+  ```bash
+  chmod +x scripts/generate-ssl-certs.sh
+  ./scripts/generate-ssl-certs.sh cai.empresa.local
+  ```
+- **En Windows (PowerShell / CMD)**:
+  ```cmd
+  scripts\generate-ssl-certs.bat cai.empresa.local
+  ```
+
+---
+
+## 4. Despliegue de Producción (`docker-compose.prod.yml`)
+
+1. Construir las imágenes y levantar los servicios en segundo plano:
+   ```bash
+   docker compose -f docker-compose.prod.yml up -d --build
+   ```
+2. Verificar el arranque del contenedor `porware_cai_api_prod`:
+   ```bash
+   docker logs -f porware_cai_api_prod
+   ```
+   Al iniciar, el contenedor ejecuta automáticamente:
+   - `npx prisma migrate deploy` (aplica las migraciones versionadas en `prisma/migrations/`).
+   - `node dist/prisma/seed.js` (crea el usuario `ADMINISTRADOR` inicial con `INITIAL_ADMIN_PASSWORD` y `debeCambiarClave: true` si la base de datos aún no tiene administrador).
+   - `node dist/main` (levanta la API NestJS en el puerto interno `3000`).
+3. Verificar el estado de salud del sistema:
+   ```bash
+   curl -k https://localhost/api/v1/health
+   ```
+   Debe responder `"status": "ok"` y `"database": "conectado"`.
+4. Primer ingreso:
+   - Abra `https://localhost` (o el dominio configurado).
+   - Inicie sesión con `V-10000001` (o `admin@porware.com`) y la contraseña definida en `INITIAL_ADMIN_PASSWORD`.
+   - El sistema mostrará la pantalla obligatoria de **Cambio de Contraseña** antes de habilitar cualquier módulo.
+
+---
+
+## 5. Ejecución de Pruebas y Verificación Local (Sin Docker)
+
+Para compilar y ejecutar las pruebas automáticas de permisos RBAC, firma QR HMAC-SHA256, anti-passback y baja lógica:
+
+```bash
+# 1. Instalar dependencias de forma determinista
+npm ci
+npm --prefix frontend ci
+
+# 2. Verificar tipado y linter en backend y frontend
+npm run lint
+npm --prefix frontend run lint
+
+# 3. Compilar backend (NestJS + seed JS) y frontend (Vite + TypeScript)
+npm run build
+npm --prefix frontend run build
+
+# 4. Ejecutar suite de pruebas automáticas (13 tests)
+npm test
 ```
 
 ---
 
-## 3. Procedimiento de Primer Despliegue (Go-Live)
+## 6. Procedimiento de Rollback en Producción
 
-1. **Clonar el repositorio**:
+En caso de que una actualización presente problemas:
+
+1. **Generar respaldo preventivo antes de cada despliegue**:
    ```bash
-   git clone https://github.com/alegtm31-cell/SISTEMA_PORWARE_CAI.git /opt/cai-system
-   cd /opt/cai-system
+   ./scripts/backup.sh porware_cai_db_prod 30
    ```
-
-2. **Copiar y configurar variables**:
+2. **Revertir a la versión estable anterior del código**:
    ```bash
-   cp .env.example .env
-   nano .env
-   ```
-
-3. **Construir y levantar la infraestructura en producción**:
-   ```bash
+   git checkout <commit_estable_anterior>
    docker compose -f docker-compose.prod.yml up -d --build
    ```
-
-4. **Verificar estado de los contenedores**:
+3. **Restaurar base de datos (solo si la migración afectó datos)**:
    ```bash
-   docker compose -f docker-compose.prod.yml ps
+   ./scripts/restore.sh ./backups/porware_cai_YYYYMMDD_HHMMSS.sql.gz porware_cai_db_prod
    ```
-   *Debe mostrar los 3 servicios en estado saludable (`healthy` o `Up`):*
-   * `cai_postgres`
-   * `cai_api_prod`
-   * `cai_nginx_prod`
-
-5. **Verificación de Salud (Healthcheck)**:
-   ```bash
-   curl -i http://localhost/api/v1/health
-   ```
-   *Respuesta esperada (HTTP 200 OK):*
-   ```json
-   {
-     "status": "ok",
-     "service": "porware-cai-backend",
-     "version": "2.0.0",
-     "timestamp": "2026-10-25T...",
-     "database": { "status": "connected", "latencyMs": 4 },
-     "memory": { "rssMb": 85.2, "heapUsedMb": 42.1 }
-   }
-   ```
-
----
-
-## 4. Procedimiento de Actualización de Versión
-
-Para aplicar parches o actualizaciones sin pérdida de datos en producción:
-
-1. **Crear un respaldo preventivo obligatorio**:
-   ```bash
-   # En Linux:
-   bash scripts/backup.sh
-   # En Windows:
-   scripts\backup.bat
-   ```
-
-2. **Descargar los últimos cambios**:
-   ```bash
-   git pull origin main
-   ```
-
-3. **Reconstruir y desplegar los contenedores sin tiempo de inactividad de datos**:
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d --build
-   ```
-
-4. **Confirmar logs y ausencia de errores**:
-   ```bash
-   docker compose -f docker-compose.prod.yml logs -f cai_api_prod
-   ```
-
----
-
-## 5. Procedimiento de Reversión Inmediata (Rollback)
-
-Si una versión presenta fallos críticos en garita:
-
-1. **Identificar el commit estable anterior**:
-   ```bash
-   git log --oneline -n 5
-   ```
-
-2. **Revertir el código al commit estable (ejemplo `f5b09dd`)**:
-   ```bash
-   git checkout f5b09dd
-   ```
-
-3. **Reconstruir los contenedores con la versión anterior**:
-   ```bash
-   docker compose -f docker-compose.prod.yml up -d --build
-   ```
-
-4. **Si la base de datos sufrió alteraciones incompatibles, restaurar el respaldo previo**:
-   ```bash
-   # En Linux:
-   bash scripts/restore.sh backups/cai_backup_YYYYMMDD_HHMMSS.sql.gz
-   # En Windows:
-   scripts\restore.bat backups\cai_backup_YYYYMMDD_HHMMSS.sql
-   ```
-
-5. **Validar funcionamiento**:
-   Acceda a `http://192.168.10.8` y verifique la pantalla de garita y el endpoint `/api/v1/health`.

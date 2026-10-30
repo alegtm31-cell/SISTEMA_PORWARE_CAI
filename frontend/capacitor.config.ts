@@ -1,17 +1,11 @@
 import type { CapacitorConfig } from '@capacitor/cli';
 
 const config: CapacitorConfig = {
-  appId: 'com.cai.controlacceso',
-  appName: 'CAI Control',
+  appId: 'com.porware.cai',
+  appName: 'Porware CAI',
   webDir: 'dist',
   server: {
     androidScheme: 'https',
-    cleartext: true,
-  },
-  plugins: {
-    CapacitorHttp: {
-      enabled: true,
-    },
   },
 };
 

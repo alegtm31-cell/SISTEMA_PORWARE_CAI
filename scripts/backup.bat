@@ -1,28 +1,38 @@
 @echo off
-setlocal enabledelayedexpansion
+REM ==============================================================================
+REM Script de Respaldo Automatizado con Rotacion - Porware CAI PostgreSQL (Windows)
+REM Uso: scripts\backup.bat [nombre_contenedor] [dias_retencion]
+REM ==============================================================================
 
-echo ===================================================
-echo     RESPALDO AUTOMATIZADO DE BASE DE DATOS CAI
-echo ===================================================
+set CONTAINER_NAME=%1
+if "%CONTAINER_NAME%"=="" set CONTAINER_NAME=porware_cai_db_prod
+set RETENTION_DAYS=%2
+if "%RETENTION_DAYS%"=="" set RETENTION_DAYS=30
 
-set BACKUP_DIR=..\backups
+set DB_USER=postgres
+set DB_NAME=porware_cai
+set BACKUP_DIR=backups
+
 if not exist "%BACKUP_DIR%" mkdir "%BACKUP_DIR%"
 
 for /f "tokens=2 delims==" %%I in ('wmic os get localdatetime /value') do set datetime=%%I
 set TIMESTAMP=%datetime:~0,8%_%datetime:~8,6%
-set FILENAME=%BACKUP_DIR%\cai_db_backup_%TIMESTAMP%.sql
+set BACKUP_FILE=%BACKUP_DIR%\porware_cai_%TIMESTAMP%.sql
 
-echo Generando volcado de PostgreSQL cai_db...
-docker exec -t cai_postgres pg_dump -U postgres cai_db > "%FILENAME%"
+echo Iniciando respaldo de la base de datos %DB_NAME% desde %CONTAINER_NAME%...
 
-if %ERRORLEVEL% EQU 0 (
-    echo.
-    echo [OK] Respaldo generado con exito: %FILENAME%
-    for %%F in ("%FILENAME%") do echo Tamano del archivo: %%~zF bytes
-) else (
-    echo.
-    echo [ERROR] No se pudo generar el respaldo de la base de datos.
-    exit /b 1
+docker exec -i %CONTAINER_NAME% pg_dump -U %DB_USER% -d %DB_NAME% --clean --if-exists > "%BACKUP_FILE%" 2>nul
+if %ERRORLEVEL% NEQ 0 (
+    echo Contenedor %CONTAINER_NAME% no disponible, intentando con porware_cai_db...
+    docker exec -i porware_cai_db pg_dump -U %DB_USER% -d %DB_NAME% --clean --if-exists > "%BACKUP_FILE%"
 )
 
-echo ===================================================
+if %ERRORLEVEL% EQU 0 (
+    echo [OK] Respaldo completado exitosamente en: %BACKUP_FILE%
+    forfiles /p "%BACKUP_DIR%" /s /m porware_cai_*.sql* /d -%RETENTION_DAYS% /c "cmd /c del @path" 2>nul
+    echo [OK] Politica de rotacion (%RETENTION_DAYS% dias) aplicada.
+) else (
+    if exist "%BACKUP_FILE%" del "%BACKUP_FILE%"
+    echo [ERROR] Fallo al generar el respaldo. Verifique que el contenedor Docker PostgreSQL este en ejecucion.
+    exit /b 1
+)

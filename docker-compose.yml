@@ -1,22 +1,20 @@
-version: '3.8'
-
 services:
   postgres:
     image: postgres:16-alpine
-    container_name: cai_postgres
+    container_name: porware_cai_db
     restart: unless-stopped
     environment:
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD en su archivo .env}
-      POSTGRES_DB: ${POSTGRES_DB:-cai_db}
-    # Seguridad: Exponer solo a localhost para herramientas de administración local (DBeaver)
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-postgres123}
+      POSTGRES_DB: ${POSTGRES_DB:-porware_cai}
     ports:
-      - "127.0.0.1:5432:5432"
+      - '5432:5432'
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./backups:/backups
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB"]
-      interval: 10s
+      test: ['CMD-SHELL', 'pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-porware_cai}']
+      interval: 5s
       timeout: 5s
       retries: 5
 
@@ -24,26 +22,23 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: cai_backend
+    container_name: porware_cai_api
     restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
     ports:
-      - "3000:3000"
+      - '${PORT:-3000}:3000'
     environment:
-      DATABASE_URL: "postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-cai_db}?schema=public"
+      NODE_ENV: ${NODE_ENV:-development}
       PORT: 3000
-      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET en su archivo .env}
-      JWT_EXPIRATION: ${JWT_EXPIRATION:-24h}
-    volumes:
-      - ./prisma/data:/usr/src/app/prisma/data
-    healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:3000/api/v1/health"]
-      interval: 30s
-      timeout: 5s
-      retries: 3
-      start_period: 15s
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres123}@postgres:5432/${POSTGRES_DB:-porware_cai}?schema=public
+      JWT_SECRET: ${JWT_SECRET:-porware_cai_dev_jwt_secret_change_in_prod}
+      JWT_EXPIRATION: ${JWT_EXPIRATION:-12h}
+      QR_HMAC_SECRET: ${QR_HMAC_SECRET:-porware_cai_dev_qr_hmac_secret}
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:5173,http://localhost:3000}
+      INITIAL_ADMIN_PASSWORD: ${INITIAL_ADMIN_PASSWORD:-AdminCai2026!}
+      INITIAL_SECURITY_PASSWORD: ${INITIAL_SECURITY_PASSWORD:-GaritaCai2026!}
 
 volumes:
   postgres_data:
