@@ -20,6 +20,18 @@ export class AccessService {
     qrToken?: string,
   ) {
     const rawTarget = (targetId || '').trim();
+    if (rawTarget.startsWith('CAI-EVT:') || qrToken?.trim().startsWith('CAI-EVT:')) {
+      await this.auditoriaService.registrar({
+        usuarioId: registradoPorId,
+        accion: 'ACCESO_DENEGADO_TOKEN_EVENTO_EN_GARITA',
+        entidad: 'Evento',
+        detalles: { motivo: 'Intento de usar enlace compartido CAI-EVT como pase de garita' },
+      });
+      throw new ForbiddenException(
+        '⛔ El código compartido de evento (CAI-EVT) solo sirve para solicitar unirse al evento y NO autoriza el ingreso en garita.',
+      );
+    }
+
     const tokenCandidate = qrToken?.trim().startsWith('CAI2:')
       ? qrToken.trim()
       : rawTarget.startsWith('CAI2:')
@@ -60,7 +72,7 @@ export class AccessService {
 
     // Atomicidad: Nivel Serializable para prevenir condiciones de carrera en Anti-Passback bajo alta concurrencia
     return this.prisma.$transaction(
-      async (tx) => {
+      async (tx: Prisma.TransactionClient) => {
         if (isGuest) {
           // Buscar invitado por ID o por Cédula
           const guest = await tx.invitado.findFirst({
@@ -72,7 +84,7 @@ export class AccessService {
             },
           });
 
-          if (!guest || (guest as any).eliminado) {
+          if (!guest || guest.eliminado) {
             throw new NotFoundException(`Invitado con identificación '${cleanId}' no encontrado o dado de baja`);
           }
 
@@ -90,43 +102,97 @@ export class AccessService {
             );
           }
 
-          // Regla 1.b: Validar la visita en la tabla Visita (si viene de QR o si el modelo Visita está activo en BD)
+          // Regla 1.b: Validar la visita vigente en la tabla Visita (por QR o por cédula)
           let linkedVisitaId: string | null = null;
-          if ((tx as any).visita) {
-            if (verifiedVisitaId) {
-              const visita = await (tx as any).visita.findUnique({
-                where: { id: verifiedVisitaId },
+          if (verifiedVisitaId) {
+            const visita = await tx.visita.findUnique({
+              where: { id: verifiedVisitaId },
+            });
+
+            if (!visita || visita.invitadoId !== guest.id) {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_SIN_VISITA',
+                entidad: 'Invitado',
+                entidadId: guest.id,
+                detalles: { cedula: guest.cedula, visitaId: verifiedVisitaId, motivo: 'Visita inexistente o no asociada' },
               });
+              throw new ForbiddenException(
+                '⛔ Sin visita autorizada vigente: el pase QR no corresponde a una visita registrada en el servidor.',
+              );
+            }
 
-              if (!visita || visita.invitadoId !== guest.id) {
-                throw new ForbiddenException('⛔ El pase QR no corresponde a una visita registrada en el servidor.');
+            if (tipo === 'ENTRADA') {
+              if (visita.estado !== 'AUTORIZADA') {
+                await this.auditoriaService.registrar({
+                  usuarioId: registradoPorId,
+                  accion: 'ACCESO_DENEGADO_VISITA_NO_AUTORIZADA',
+                  entidad: 'Visita',
+                  entidadId: visita.id,
+                  detalles: { invitadoId: guest.id, cedula: guest.cedula, estadoVisita: visita.estado },
+                });
+                throw new ForbiddenException(
+                  `⛔ Sin visita autorizada vigente: la visita asociada a este pase fue ${visita.estado.toLowerCase()} por el anfitrión.`,
+                );
               }
-
-              if (tipo === 'ENTRADA') {
-                if (visita.estado === 'CANCELADA' || visita.estado === 'DENEGADA') {
-                  throw new ForbiddenException(`⛔ La visita asociada a este pase fue ${visita.estado.toLowerCase()} por el anfitrión.`);
-                }
-                if (visita.fechaExpiracion && new Date(visita.fechaExpiracion).getTime() < Date.now()) {
-                  throw new ForbiddenException('⛔ La vigencia de la visita en el servidor ha expirado.');
-                }
-              }
-              linkedVisitaId = visita.id;
-            } else if (tipo === 'ENTRADA') {
-              const latestVisita = await (tx as any).visita.findFirst({
-                where: { invitadoId: guest.id },
-                orderBy: { createdAt: 'desc' },
-              });
-
-              if (latestVisita) {
-                if (latestVisita.estado === 'CANCELADA' || latestVisita.estado === 'DENEGADA') {
-                  throw new ForbiddenException(`⛔ La visita del invitado se encuentra ${latestVisita.estado.toLowerCase()}.`);
-                }
-                if (latestVisita.fechaExpiracion && new Date(latestVisita.fechaExpiracion).getTime() < Date.now()) {
-                  throw new ForbiddenException('⛔ El pase de visita del invitado ha vencido. Solicite renovación al anfitrión.');
-                }
-                linkedVisitaId = latestVisita.id;
+              if (visita.fechaExpiracion && new Date(visita.fechaExpiracion).getTime() < Date.now()) {
+                await this.auditoriaService.registrar({
+                  usuarioId: registradoPorId,
+                  accion: 'ACCESO_DENEGADO_VISITA_EXPIRADA',
+                  entidad: 'Visita',
+                  entidadId: visita.id,
+                  detalles: { invitadoId: guest.id, cedula: guest.cedula, fechaExpiracion: visita.fechaExpiracion },
+                });
+                throw new ForbiddenException(
+                  '⛔ Sin visita autorizada vigente: la vigencia de la visita en el servidor ha expirado.',
+                );
               }
             }
+            linkedVisitaId = visita.id;
+          } else if (tipo === 'ENTRADA') {
+            const latestVisita = await tx.visita.findFirst({
+              where: { invitadoId: guest.id },
+              orderBy: { createdAt: 'desc' },
+            });
+
+            if (!latestVisita) {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_SIN_VISITA',
+                entidad: 'Invitado',
+                entidadId: guest.id,
+                detalles: { cedula: guest.cedula, motivo: 'Invitado sin ninguna Visita registrada' },
+              });
+              throw new ForbiddenException('⛔ Sin visita autorizada vigente para el visitante.');
+            }
+
+            if (latestVisita.estado !== 'AUTORIZADA') {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_VISITA_NO_AUTORIZADA',
+                entidad: 'Visita',
+                entidadId: latestVisita.id,
+                detalles: { invitadoId: guest.id, cedula: guest.cedula, estadoVisita: latestVisita.estado },
+              });
+              throw new ForbiddenException(
+                `⛔ Sin visita autorizada vigente: la visita del invitado se encuentra ${latestVisita.estado.toLowerCase()}.`,
+              );
+            }
+
+            if (latestVisita.fechaExpiracion && new Date(latestVisita.fechaExpiracion).getTime() < Date.now()) {
+              await this.auditoriaService.registrar({
+                usuarioId: registradoPorId,
+                accion: 'ACCESO_DENEGADO_VISITA_EXPIRADA',
+                entidad: 'Visita',
+                entidadId: latestVisita.id,
+                detalles: { invitadoId: guest.id, cedula: guest.cedula, fechaExpiracion: latestVisita.fechaExpiracion },
+              });
+              throw new ForbiddenException(
+                '⛔ Sin visita autorizada vigente: el pase de visita del invitado ha vencido. Solicite renovación al anfitrión.',
+              );
+            }
+
+            linkedVisitaId = latestVisita.id;
           }
 
           // Regla 2: Anti-Passback atómico para Visitantes
@@ -166,10 +232,10 @@ export class AccessService {
             );
           }
 
-          if (tipo === 'SALIDA' && linkedVisitaId && (tx as any).visita?.update) {
-            await (tx as any).visita.update({
+          if (tipo === 'SALIDA' && linkedVisitaId) {
+            await tx.visita.update({
               where: { id: linkedVisitaId },
-              data: { estado: 'COMPLETADA' },
+              data: { estado: 'FINALIZADA' },
             });
           }
 
@@ -310,6 +376,18 @@ export class AccessService {
       throw new NotFoundException('Identificación vacía');
     }
 
+    if (raw.startsWith('CAI-EVT:')) {
+      await this.auditoriaService.registrar({
+        usuarioId: operadorId,
+        accion: 'LOOKUP_TOKEN_EVENTO_EN_GARITA',
+        entidad: 'Evento',
+        detalles: { motivo: 'Intento de escanear enlace compartido CAI-EVT en garita' },
+      });
+      throw new ForbiddenException(
+        '⛔ El código compartido de evento (CAI-EVT) solo sirve para solicitar unirse al evento y NO autoriza el ingreso en garita.',
+      );
+    }
+
     let cleanId = raw;
     let qrMeta: {
       isSignedPass: boolean;
@@ -341,7 +419,7 @@ export class AccessService {
         throw new ForbiddenException(`⛔ PASE DIGITAL EXPIRADO: ${qrCheck.error}`);
       }
 
-      if ((this.prisma as any).visita?.findUnique && qrCheck.payload?.visitaId) {
+      if (qrCheck.payload?.visitaId) {
         const visita = await this.prisma.visita.findUnique({
           where: { id: qrCheck.payload.visitaId },
         });
@@ -440,7 +518,7 @@ export class AccessService {
         orderBy: { timestamp: 'desc' },
       });
       const estaDentro = lastMove?.tipo === 'ENTRADA';
-      const latestVisita = Array.isArray((guest as any).visitas) ? (guest as any).visitas[0] : undefined;
+      const latestVisita = Array.isArray(guest.visitas) ? guest.visitas[0] : undefined;
 
       return {
         id: guest.id,

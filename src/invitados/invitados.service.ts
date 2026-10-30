@@ -104,20 +104,17 @@ export class InvitadosService {
     });
 
     // Crear registro formal de Visita con vigencia en la tabla Visita
-    let visitaCreated: any = null;
-    if ((this.prisma as any).visita?.create) {
-      visitaCreated = await this.prisma.visita.create({
-        data: {
-          invitadoId: result.id,
-          empleadoId: hostId,
-          fecha: new Date(),
-          fechaExpiracion,
-          motivo: result.motivo,
-          placa: result.placa,
-          estado: 'AUTORIZADA',
-        },
-      });
-    }
+    const visitaCreated = await this.prisma.visita.create({
+      data: {
+        invitadoId: result.id,
+        empleadoId: hostId,
+        fecha: new Date(),
+        fechaExpiracion,
+        motivo: result.motivo,
+        placa: result.placa,
+        estado: 'AUTORIZADA',
+      },
+    });
 
     const paseQr = visitaCreated ? this.buildPassForVisita(result, visitaCreated) : null;
 
@@ -430,12 +427,10 @@ export class InvitadosService {
     }
 
     // Cancelar visitas activas asociadas
-    if ((this.prisma as any).visita?.updateMany) {
-      await this.prisma.visita.updateMany({
-        where: { invitadoId: id, estado: { in: ['PENDIENTE', 'AUTORIZADA'] } },
-        data: { estado: 'CANCELADA' },
-      });
-    }
+    await this.prisma.visita.updateMany({
+      where: { invitadoId: id, estado: { in: ['PENDIENTE', 'AUTORIZADA'] } },
+      data: { estado: 'CANCELADA' },
+    });
 
     // Producción 7: Evitar borrado físico de invitados con historial (usar baja lógica)
     const historialCount = existing._count?.historial ?? 0;

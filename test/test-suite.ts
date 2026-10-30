@@ -14,8 +14,11 @@ import { HistorialController } from '../src/historial/historial.controller';
 import { HistorialService } from '../src/historial/historial.service';
 import { NoticiasController } from '../src/noticias/noticias.controller';
 import { AuditoriaController } from '../src/auditoria/auditoria.controller';
+import { HealthController } from '../src/health/health.controller';
 import { RolesGuard } from '../src/auth/roles.guard';
 import { signQrPassPayload, verifyQrPassToken } from '../src/common/utils/qr-pass.util';
+import { validateRuntimeSecrets } from '../src/common/utils/env-validation.util';
+import { runSeed } from '../prisma/seed';
 import * as bcrypt from 'bcryptjs';
 
 process.env.JWT_SECRET = process.env.JWT_SECRET || 'test-jwt-secret-key-for-cai-production-suite-2026';
@@ -259,6 +262,7 @@ async function runTests() {
   // =========================================================================
   let ultimoMovMock: any = null;
   let usuarioBloqueadoMock = false;
+  let tieneVisitaMock = true;
   let visitaEstadoMock: 'AUTORIZADA' | 'CANCELADA' | 'COMPLETADA' = 'AUTORIZADA';
   let visitaExpiracionMock: Date = new Date(Date.now() + 3600_000);
   const auditoriaLogs: any[] = [];
@@ -293,7 +297,12 @@ async function runTests() {
     invitado: {
       findFirst: async ({ where }: any) => {
         const conds = where?.OR || [];
-        const match = conds.some((c: any) => c.id === 'inv-1' || c.cedula?.equals === 'V-19888777');
+        const match = conds.some(
+          (c: any) =>
+            c.id === 'inv-1' ||
+            c.cedula?.equals === 'V-19888777' ||
+            (Array.isArray(c.cedula?.in) && c.cedula.in.includes('V-19888777')),
+        );
         if (match) {
           return {
             id: 'inv-1',
@@ -304,13 +313,15 @@ async function runTests() {
             bloqueado: false,
             eliminado: false,
             empleado: { id: 'emp-1', nombre: 'Juan', apellido: 'Pérez' },
-            visitas: [
-              {
-                id: 'visita-1',
-                estado: visitaEstadoMock,
-                fechaExpiracion: visitaExpiracionMock,
-              },
-            ],
+            visitas: tieneVisitaMock
+              ? [
+                  {
+                    id: 'visita-1',
+                    estado: visitaEstadoMock,
+                    fechaExpiracion: visitaExpiracionMock,
+                  },
+                ]
+              : [],
             historial: ultimoMovMock ? [ultimoMovMock] : [],
           };
         }
@@ -319,7 +330,7 @@ async function runTests() {
     },
     visita: {
       findUnique: async ({ where }: any) => {
-        if (where.id === 'visita-1') {
+        if (tieneVisitaMock && where.id === 'visita-1') {
           return {
             id: 'visita-1',
             invitadoId: 'inv-1',
@@ -330,12 +341,15 @@ async function runTests() {
         }
         return null;
       },
-      findFirst: async () => ({
-        id: 'visita-1',
-        invitadoId: 'inv-1',
-        estado: visitaEstadoMock,
-        fechaExpiracion: visitaExpiracionMock,
-      }),
+      findFirst: async () =>
+        tieneVisitaMock
+          ? {
+              id: 'visita-1',
+              invitadoId: 'inv-1',
+              estado: visitaEstadoMock,
+              fechaExpiracion: visitaExpiracionMock,
+            }
+          : null,
       update: async () => ({}),
     },
     historial: {
@@ -624,6 +638,268 @@ async function runTests() {
       newPassword: 'NuevaClaveSegura2026!',
     });
     assert.strictEqual(changeRes.user.debeCambiarClave, false);
+  });
+
+  // =========================================================================
+  // 8. PRUEBAS DE HEALTHCHECK (/health/live SIN BD Y /health CON BD)
+  // =========================================================================
+  await test('HealthController: /health/live responde 200 sin base de datos y /health responde 503 si PostgreSQL falla', async () => {
+    let dbFailing = true;
+    const mockPrismaHealth: any = {
+      $queryRaw: async () => {
+        if (dbFailing) {
+          throw new Error('Connection refused to PostgreSQL');
+        }
+        return [{ '?column?': 1 }];
+      },
+    };
+
+    const healthController = new HealthController(mockPrismaHealth);
+
+    // 1. /health/live debe devolver 200 OK incluso cuando PostgreSQL está caído
+    let liveStatus = 0;
+    let liveBody: any = null;
+    const mockResLive: any = {
+      status(code: number) {
+        liveStatus = code;
+        return this;
+      },
+      json(payload: any) {
+        liveBody = payload;
+        return this;
+      },
+    };
+    const liveRet = healthController.checkLiveness(mockResLive);
+    assert.strictEqual(liveStatus, 200);
+    assert.strictEqual(liveBody.status, 'ok');
+    assert.strictEqual(liveRet, mockResLive);
+
+    // 2. /health debe devolver 503 cuando PostgreSQL falla
+    let healthStatus = 0;
+    let healthBody: any = null;
+    const mockResHealth: any = {
+      status(code: number) {
+        healthStatus = code;
+        return this;
+      },
+      json(payload: any) {
+        healthBody = payload;
+        return this;
+      },
+    };
+    await healthController.checkHealth(mockResHealth);
+    assert.strictEqual(healthStatus, 503);
+    assert.strictEqual(healthBody.status, 'degraded');
+    assert.strictEqual(healthBody.database.status, 'down');
+
+    // 3. /health debe devolver 200 cuando PostgreSQL responde
+    dbFailing = false;
+    await healthController.checkHealth(mockResHealth);
+    assert.strictEqual(healthStatus, 200);
+    assert.strictEqual(healthBody.status, 'ok');
+    assert.strictEqual(healthBody.database.status, 'up');
+  });
+
+  // =========================================================================
+  // 9. PRUEBAS DE SEED IDEMPOTENTE Y VARIABLES INITIAL_ADMIN / INITIAL_SECURITY
+  // =========================================================================
+  await test('Seed: crea admin y vigilante con cédulas/correos de variables, es idempotente y no sobrescribe contraseñas', async () => {
+    const usersStore: any[] = [];
+    const mockPrismaSeed: any = {
+      usuario: {
+        findFirst: async ({ where }: any) => {
+          const conds = where?.OR || [];
+          return (
+            usersStore.find((u) =>
+              conds.some(
+                (c: any) =>
+                  (c.cedula && u.cedula === c.cedula) ||
+                  (c.email && u.email === c.email),
+              ),
+            ) || null
+          );
+        },
+        create: async ({ data }: any) => {
+          const created = { id: `u-${usersStore.length + 1}`, ...data };
+          usersStore.push(created);
+          return created;
+        },
+        update: async () => {
+          throw new Error('El seed no debe sobrescribir usuarios ni contraseñas existentes');
+        },
+        upsert: async () => ({}),
+      },
+    };
+
+    const seedEnv = {
+      NODE_ENV: 'production',
+      SEED_SKIP_CSV: 'true',
+      INITIAL_ADMIN_CEDULA: 'V-10000001',
+      INITIAL_ADMIN_EMAIL: 'admin@porware.com',
+      INITIAL_ADMIN_PASSWORD: 'ClaveRealAdminProd2026!',
+      INITIAL_SECURITY_CEDULA: 'V-20000002',
+      INITIAL_SECURITY_EMAIL: 'garita@porware.com',
+      INITIAL_SECURITY_PASSWORD: 'ClaveRealGaritaProd2026!',
+    };
+
+    // Primera ejecución: crea ambos con debeCambiarClave=true y registroCompletado=true
+    const firstRun = await runSeed(mockPrismaSeed, seedEnv as any);
+    assert.strictEqual(firstRun.adminCreated, true);
+    assert.strictEqual(firstRun.securityCreated, true);
+    assert.strictEqual(usersStore.length, 2);
+
+    const adminCreated = usersStore.find((u) => u.rol === 'ADMINISTRADOR');
+    const secCreated = usersStore.find((u) => u.rol === 'SEGURIDAD');
+    assert.strictEqual(adminCreated.cedula, 'V-10000001');
+    assert.strictEqual(adminCreated.email, 'admin@porware.com');
+    assert.strictEqual(adminCreated.debeCambiarClave, true);
+    assert.strictEqual(adminCreated.registroCompletado, true);
+
+    assert.strictEqual(secCreated.cedula, 'V-20000002');
+    assert.strictEqual(secCreated.email, 'garita@porware.com');
+    assert.strictEqual(secCreated.debeCambiarClave, true);
+    assert.strictEqual(secCreated.registroCompletado, true);
+
+    const originalAdminHash = adminCreated.password;
+    const originalSecHash = adminCreated.password && secCreated.password;
+
+    // Segunda ejecución con otra contraseña en env: debe ser idempotente y NO pisar los hashes existentes
+    const secondRun = await runSeed(
+      mockPrismaSeed,
+      {
+        ...seedEnv,
+        INITIAL_ADMIN_PASSWORD: 'OtraClaveDistintaNoPisar2026!',
+        INITIAL_SECURITY_PASSWORD: 'OtraClaveGaritaNoPisar2026!',
+      } as any,
+    );
+    assert.strictEqual(secondRun.adminCreated, false);
+    assert.strictEqual(secondRun.securityCreated, false);
+    assert.strictEqual(usersStore.length, 2);
+    assert.strictEqual(adminCreated.password, originalAdminHash);
+    assert.strictEqual(secCreated.password, originalSecHash);
+  });
+
+  // =========================================================================
+  // 10. PRUEBAS DE VALIDACIÓN DE SECRETOS DE PLANTILLA AL ARRANCAR
+  // =========================================================================
+  await test('Arranque: falla con secretos de plantilla o longitudes insuficientes en JWT_SECRET, QR_HMAC_SECRET, POSTGRES_PASSWORD e INITIAL_ADMIN_PASSWORD', async () => {
+    const validBaseEnv = {
+      JWT_SECRET: 'a9f8e7d6c5b4a3f2e1d0c9b8a7f6e5d4c3b2a1f0e9d8c7b6a5f4e3d2c1b0a9f8',
+      QR_HMAC_SECRET: 'f1e2d3c4b5a69788796a5b4c3d2e1f0a9b8c7d6e5f4a3b2c1d0e9f8a7b6c5d4e',
+      POSTGRES_PASSWORD: 'ClavePostgresProduccionSegura99!',
+      INITIAL_ADMIN_PASSWORD: 'ClaveAdminInicialReal2026!',
+    };
+
+    // Caso válido no lanza error
+    validateRuntimeSecrets(validBaseEnv);
+
+    // 1. JWT_SECRET con palabra de plantilla "reemplazar"
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          JWT_SECRET: 'reemplazar_con_cadena_aleatoria_de_al_menos_64_caracteres_hex',
+        }),
+      (err: any) => err.message.includes('JWT_SECRET') && err.message.includes('plantilla'),
+    );
+
+    // 2. JWT_SECRET menor de 32 caracteres
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          JWT_SECRET: 'SecretoCorto12345',
+        }),
+      (err: any) => err.message.includes('JWT_SECRET') && err.message.includes('32 caracteres'),
+    );
+
+    // 3. QR_HMAC_SECRET con palabra de plantilla
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          QR_HMAC_SECRET: 'reemplazar_con_secreto_exclusivo_para_firma_hmac_sha256_de_qr',
+        }),
+      (err: any) => err.message.includes('QR_HMAC_SECRET'),
+    );
+
+    // 4. POSTGRES_PASSWORD con palabra "CambiarClave" o "changeme"
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          POSTGRES_PASSWORD: 'CambiarClavePostgres2026!',
+        }),
+      (err: any) => err.message.includes('POSTGRES_PASSWORD'),
+    );
+
+    // 5. INITIAL_ADMIN_PASSWORD con plantilla "CambiarClave" o menor de 12 caracteres
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          INITIAL_ADMIN_PASSWORD: 'CambiarClaveAdminInicial2026!',
+        }),
+      (err: any) => err.message.includes('INITIAL_ADMIN_PASSWORD'),
+    );
+    assert.throws(
+      () =>
+        validateRuntimeSecrets({
+          ...validBaseEnv,
+          INITIAL_ADMIN_PASSWORD: 'Corto123!',
+        }),
+      (err: any) => err.message.includes('INITIAL_ADMIN_PASSWORD') && err.message.includes('12 caracteres'),
+    );
+  });
+
+  // =========================================================================
+  // 11. PRUEBAS DE ACCESO DE VISITANTE SIN VISITA / VIGENTE / EXPIRADA POR CÉDULA
+  // =========================================================================
+  await test('Acceso por cédula: ENTRADA de invitado sin Visita vigente -> 403 y auditoría; con Visita AUTORIZADA vigente -> éxito; con Visita expirada o CANCELADA -> 403', async () => {
+    ultimoMovMock = null;
+    auditoriaLogs.length = 0;
+
+    // A) Invitado sin ninguna Visita registrada -> 403 ("Sin visita autorizada vigente") + registro en Auditoría
+    tieneVisitaMock = false;
+    await assert.rejects(
+      async () => {
+        await accessService.registerAccess('V-19888777', true, 'ENTRADA', 'Intento por cédula sin visita', 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('Sin visita autorizada vigente'),
+    );
+    assert.strictEqual(auditoriaLogs.length, 1);
+    assert.strictEqual(auditoriaLogs[0].accion, 'ACCESO_DENEGADO_SIN_VISITA');
+
+    // B) Invitado con Visita AUTORIZADA vigente ingresando por cédula -> éxito
+    tieneVisitaMock = true;
+    visitaEstadoMock = 'AUTORIZADA';
+    visitaExpiracionMock = new Date(Date.now() + 3600_000);
+    const okEntry = await accessService.registerAccess('V-19888777', true, 'ENTRADA', 'Ingreso por cédula con visita', 'seg-1');
+    assert.strictEqual(okEntry.tipo, 'ENTRADA');
+    assert.strictEqual(okEntry.visitaId, 'visita-1');
+
+    // C) Invitado con Visita expirada ingresando por cédula -> 403
+    visitaExpiracionMock = new Date(Date.now() - 60_000);
+    await assert.rejects(
+      async () => {
+        await accessService.registerAccess('V-19888777', true, 'ENTRADA', 'Intento con visita expirada', 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('Sin visita autorizada vigente'),
+    );
+
+    // D) Invitado con Visita CANCELADA ingresando por cédula -> 403
+    visitaEstadoMock = 'CANCELADA';
+    visitaExpiracionMock = new Date(Date.now() + 3600_000);
+    await assert.rejects(
+      async () => {
+        await accessService.registerAccess('V-19888777', true, 'ENTRADA', 'Intento con visita cancelada', 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('Sin visita autorizada vigente'),
+    );
+
+    // Restaurar estado por defecto del mock
+    visitaEstadoMock = 'AUTORIZADA';
+    visitaExpiracionMock = new Date(Date.now() + 3600_000);
   });
 
   console.log(`\n📊 Resumen de Pruebas: ${passed} exitosas, ${failed} fallidas.`);

@@ -4,7 +4,7 @@ import { ApiProperty } from '@nestjs/swagger';
 export class LoginDto {
   @ApiProperty({
     description: 'Cédula (ej. V-12345678) o correo electrónico del usuario',
-    example: 'admin@cai.local',
+    example: 'V-10000001',
   })
   @IsString({ message: 'El identificador (cédula o email) debe ser texto' })
   @IsNotEmpty({ message: 'Debe ingresar su cédula o correo electrónico' })
@@ -12,7 +12,6 @@ export class LoginDto {
 
   @ApiProperty({
     description: 'Contraseña de acceso del usuario',
-    example: 'admin123',
   })
   @IsString({ message: 'La contraseña debe ser texto' })
   @IsNotEmpty({ message: 'La contraseña es obligatoria' })
