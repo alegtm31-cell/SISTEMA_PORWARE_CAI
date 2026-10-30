@@ -13,6 +13,7 @@ frontend/dist-ssr/
 .env.local
 .env.*.local
 frontend/.env.local
+nginx/certs/
 nginx/ssl/
 *.key
 *.crt

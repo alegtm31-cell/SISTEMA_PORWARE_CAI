@@ -1,23 +1,37 @@
-#!/bin/bash
-set -e
+#!/usr/bin/env bash
+# ==============================================================================
+# Generador de Certificados TLS con SAN (Subject Alternative Name) para Nginx
+# Uso: ./scripts/generate-ssl-certs.sh [dominio] [--force]
+# Genera: nginx/certs/cai.crt y nginx/certs/cai.key
+# ==============================================================================
+set -euo pipefail
 
+DOMAIN="${1:-localhost}"
+FORCE="${2:-}"
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-SSL_DIR="$DIR/../nginx/ssl"
+CERTS_DIR="$DIR/../nginx/certs"
 
-mkdir -p "$SSL_DIR"
+mkdir -p "$CERTS_DIR"
 
-if [ -f "$SSL_DIR/server.key" ] && [ -f "$SSL_DIR/server.crt" ]; then
-    echo "ℹ️ Los certificados SSL ya existen en nginx/ssl."
+if [ -f "$CERTS_DIR/cai.key" ] && [ -f "$CERTS_DIR/cai.crt" ] && [ "$FORCE" != "--force" ]; then
+    echo "ℹ️ Los certificados TLS ya existen en nginx/certs/ (use --force para regenerar)."
     exit 0
 fi
 
-echo "🔐 Generando certificados SSL locales para Nginx..."
+SAN_LIST="DNS:localhost,IP:127.0.0.1"
+if [ "$DOMAIN" != "localhost" ]; then
+    SAN_LIST="DNS:${DOMAIN},DNS:localhost,IP:127.0.0.1"
+fi
+
+echo "🔐 Generando certificados TLS para Nginx en nginx/certs/ (Dominio: ${DOMAIN}, SAN: ${SAN_LIST})..."
+
 openssl req -x509 -nodes -days 365 -newkey rsa:2048 \
-    -keyout "$SSL_DIR/server.key" \
-    -out "$SSL_DIR/server.crt" \
-    -subj "/CN=localhost/O=CAI/OU=Garita"
+    -keyout "$CERTS_DIR/cai.key" \
+    -out "$CERTS_DIR/cai.crt" \
+    -subj "/CN=${DOMAIN}/O=Porware CAI/OU=Seguridad" \
+    -addext "subjectAltName=${SAN_LIST}"
 
-chmod 600 "$SSL_DIR/server.key"
-chmod 644 "$SSL_DIR/server.crt"
+chmod 600 "$CERTS_DIR/cai.key"
+chmod 644 "$CERTS_DIR/cai.crt"
 
-echo "✅ Certificados SSL generados exitosamente en nginx/ssl/"
+echo "✅ Certificados TLS generados exitosamente en nginx/certs/cai.crt y nginx/certs/cai.key"
