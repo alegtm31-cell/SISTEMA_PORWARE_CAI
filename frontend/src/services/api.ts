@@ -7,6 +7,10 @@ import type {
   StatsSummary,
   TipoAcceso,
   PaseQrInfo,
+  Evento,
+  EventoInvitadoItem,
+  EventoPublicoInfo,
+  EventoGaritaHoy,
 } from '../types';
 import { offlineQueue, type OfflineMovementItem } from './offlineQueue';
 
@@ -781,6 +785,212 @@ export const api = {
         method: 'DELETE',
       },
       'Error al eliminar comunicado de la cartelera',
+    );
+  },
+
+  // =========================================================================
+  // EVENTOS Y GESTIÓN DE CUPOS (EMPLEADO PROPIETARIO, ADMINISTRADOR Y GARITA)
+  // =========================================================================
+
+  async getEventos(): Promise<Evento[]> {
+    return apiFetch<Evento[]>('/eventos', { method: 'GET' }, 'Error al obtener eventos');
+  },
+
+  async getEvento(id: string): Promise<Evento> {
+    return apiFetch<Evento>(`/eventos/${id}`, { method: 'GET' }, 'Error al obtener detalle del evento');
+  },
+
+  async createEvento(payload: {
+    nombre: string;
+    descripcion?: string;
+    inicio: string;
+    fin: string;
+    aforo: number;
+    requiereAprobacion?: boolean;
+    estado?: 'BORRADOR' | 'ACTIVO';
+  }): Promise<Evento> {
+    return apiFetch<Evento>(
+      '/eventos',
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'Error al crear el evento',
+    );
+  },
+
+  async updateEvento(
+    id: string,
+    payload: {
+      nombre?: string;
+      descripcion?: string;
+      inicio?: string;
+      fin?: string;
+      aforo?: number;
+      requiereAprobacion?: boolean;
+      estado?: 'BORRADOR' | 'ACTIVO' | 'CERRADO' | 'CANCELADO';
+      codigoActivo?: boolean;
+    },
+  ): Promise<Evento> {
+    return apiFetch<Evento>(
+      `/eventos/${id}`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify(payload),
+      },
+      'Error al actualizar el evento',
+    );
+  },
+
+  async cerrarEvento(id: string): Promise<Evento> {
+    return apiFetch<Evento>(`/eventos/${id}/cerrar`, { method: 'POST' }, 'Error al cerrar el evento');
+  },
+
+  async cancelarEvento(id: string): Promise<Evento> {
+    return apiFetch<Evento>(`/eventos/${id}/cancelar`, { method: 'POST' }, 'Error al cancelar el evento');
+  },
+
+  async toggleCodigoEvento(id: string, codigoActivo: boolean): Promise<Evento> {
+    return apiFetch<Evento>(
+      `/eventos/${id}/codigo`,
+      {
+        method: 'PATCH',
+        body: JSON.stringify({ codigoActivo }),
+      },
+      'Error al cambiar estado del enlace de evento',
+    );
+  },
+
+  async regenerarCodigoEvento(id: string): Promise<Evento> {
+    return apiFetch<Evento>(
+      `/eventos/${id}/regenerar-codigo`,
+      { method: 'POST' },
+      'Error al regenerar el código del evento',
+    );
+  },
+
+  async agregarInvitadoEventoAnfitrion(
+    eventoId: string,
+    payload: {
+      cedula: string;
+      nombre: string;
+      apellido: string;
+      telefono?: string;
+      placa?: string;
+      empresa?: string;
+    },
+  ): Promise<EventoInvitadoItem> {
+    return apiFetch<EventoInvitadoItem>(
+      `/eventos/${eventoId}/invitados`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'Error al agregar invitado al evento',
+    );
+  },
+
+  async aprobarInvitadoEvento(eventoId: string, eventoInvitadoId: string): Promise<EventoInvitadoItem> {
+    return apiFetch<EventoInvitadoItem>(
+      `/eventos/${eventoId}/invitados/${eventoInvitadoId}/aprobar`,
+      { method: 'POST' },
+      'Error al aprobar invitado en el evento',
+    );
+  },
+
+  async rechazarInvitadoEvento(eventoId: string, eventoInvitadoId: string): Promise<EventoInvitadoItem> {
+    return apiFetch<EventoInvitadoItem>(
+      `/eventos/${eventoId}/invitados/${eventoInvitadoId}/rechazar`,
+      { method: 'POST' },
+      'Error al rechazar invitado en el evento',
+    );
+  },
+
+  async revocarInvitadoEvento(eventoId: string, eventoInvitadoId: string): Promise<EventoInvitadoItem> {
+    return apiFetch<EventoInvitadoItem>(
+      `/eventos/${eventoId}/invitados/${eventoInvitadoId}/revocar`,
+      { method: 'POST' },
+      'Error al revocar invitado en el evento',
+    );
+  },
+
+  // Endpoints públicos de unión a evento (NO requieren sesión)
+  async getInfoPublicaEvento(token: string): Promise<EventoPublicoInfo> {
+    const API_URL = getBaseApiUrl();
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/eventos/publico/info?token=${encodeURIComponent(token.trim())}`, {
+        method: 'GET',
+      });
+    } catch {
+      throw new Error('Error de red: No se pudo conectar con el servidor CAI.');
+    }
+
+    if (!res.ok) {
+      const { message } = await parseErrorMessage(res, 'El enlace o código del evento no es válido.');
+      throw new Error(message);
+    }
+
+    return res.json() as Promise<EventoPublicoInfo>;
+  },
+
+  async unirseEventoPublico(payload: {
+    token: string;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    telefono?: string;
+    empresa?: string;
+    placa?: string;
+  }): Promise<{ ok: boolean; eventoNombre: string; estado: 'PENDIENTE' | 'APROBADO'; mensaje: string }> {
+    const API_URL = getBaseApiUrl();
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/eventos/unirse`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new Error('Error de red: No se pudo enviar su solicitud de inscripción.');
+    }
+
+    if (!res.ok) {
+      const { message } = await parseErrorMessage(res, 'No se pudo procesar su inscripción al evento.');
+      throw new Error(message);
+    }
+
+    return res.json();
+  },
+
+  // Endpoints de Eventos en Garita (SEGURIDAD y ADMINISTRADOR)
+  async getEventosGaritaHoy(search?: string): Promise<EventoGaritaHoy[]> {
+    const q = search?.trim() ? `?search=${encodeURIComponent(search.trim())}` : '';
+    return apiFetch<EventoGaritaHoy[]>(
+      `/eventos/garita/hoy${q}`,
+      { method: 'GET' },
+      'Error al obtener eventos activos del día en garita',
+    );
+  },
+
+  async altaRapidaEventoGarita(
+    eventoId: string,
+    payload: {
+      cedula: string;
+      nombre: string;
+      apellido: string;
+      telefono?: string;
+      placa?: string;
+      empresa?: string;
+    },
+  ): Promise<{ id: string; estado: string; origen: string; mensaje: string }> {
+    return apiFetch<{ id: string; estado: string; origen: string; mensaje: string }>(
+      `/eventos/garita/${eventoId}/alta`,
+      {
+        method: 'POST',
+        body: JSON.stringify(payload),
+      },
+      'Error al registrar alta rápida en garita para el evento',
     );
   },
 };

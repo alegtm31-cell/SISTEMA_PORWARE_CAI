@@ -119,3 +119,103 @@ export interface StatsSummary {
   salidasHoy: number;
   dentroAhora: number;
 }
+
+export type EstadoEvento = 'BORRADOR' | 'ACTIVO' | 'CERRADO' | 'CANCELADO';
+export type EstadoEventoInvitado = 'PENDIENTE' | 'APROBADO' | 'RECHAZADO' | 'REVOCADO';
+export type OrigenEventoInvitado = 'ENLACE' | 'ANFITRION' | 'GARITA';
+
+export interface EventoInvitadoItem {
+  id: string;
+  eventoId: string;
+  invitadoId: string;
+  estado: EstadoEventoInvitado;
+  origen: OrigenEventoInvitado;
+  visitaId?: string | null;
+  createdAt: string;
+  invitado: {
+    id: string;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    empresa?: string;
+    placa?: string;
+    telefono?: string;
+    bloqueado?: boolean;
+  };
+  paseQr?: PaseQrInfo | null;
+}
+
+export interface Evento {
+  id: string;
+  nombre: string;
+  descripcion?: string | null;
+  anfitrionId: string;
+  anfitrion?: {
+    id: string;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    email?: string;
+  };
+  inicio: string;
+  fin: string;
+  aforo: number;
+  requiereAprobacion: boolean;
+  estado: EstadoEvento;
+  codigoActivo: boolean;
+  tokenUnion?: string | null;
+  resumenCupo: {
+    aforo: number;
+    aprobados: number;
+    pendientes: number;
+    rechazados: number;
+    disponibles: number;
+  };
+  invitados: EventoInvitadoItem[];
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface EventoPublicoInfo {
+  eventoId: string;
+  nombre: string;
+  descripcion?: string | null;
+  inicio: string;
+  fin: string;
+  aforo: number;
+  cuposDisponibles: number;
+  lleno: boolean;
+  requiereAprobacion: boolean;
+  anfitrion: string;
+}
+
+export interface EventoGaritaHoy {
+  id: string;
+  nombre: string;
+  descripcion?: string | null;
+  inicio: string;
+  fin: string;
+  aforo: number;
+  cuposDisponibles: number;
+  anfitrion: string;
+  invitadosAprobados: Array<{
+    eventoInvitadoId: string;
+    invitadoId: string;
+    visitaId?: string | null;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    empresa?: string | null;
+    placa?: string | null;
+    estaDentro: boolean;
+  }>;
+  solicitudesGaritaPendientes: Array<{
+    eventoInvitadoId: string;
+    invitadoId: string;
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    estado: EstadoEventoInvitado;
+    origen: OrigenEventoInvitado;
+  }>;
+}

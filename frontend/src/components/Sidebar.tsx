@@ -5,6 +5,7 @@ import {
   ScanLine,
   Users,
   UserPlus,
+  Calendar,
   ClipboardList,
   Newspaper,
   LogOut,
@@ -12,12 +13,12 @@ import {
 } from 'lucide-react';
 import type { Usuario, Role } from '../types';
 
-export type NavTab = 'dashboard' | 'garita' | 'historial' | 'invitados' | 'users' | 'noticias' | 'settings';
+export type NavTab = 'dashboard' | 'garita' | 'historial' | 'invitados' | 'eventos' | 'users' | 'noticias' | 'settings';
 
 export const ALLOWED_TABS_BY_ROLE: Record<Role, NavTab[]> = {
-  ADMINISTRADOR: ['dashboard', 'garita', 'historial', 'invitados', 'users', 'noticias', 'settings'],
+  ADMINISTRADOR: ['dashboard', 'garita', 'historial', 'invitados', 'eventos', 'users', 'noticias', 'settings'],
   SEGURIDAD: ['garita', 'settings'],
-  EMPLEADO: ['invitados', 'noticias', 'settings'],
+  EMPLEADO: ['invitados', 'eventos', 'noticias', 'settings'],
 };
 
 export function getDefaultTabForRole(role: Role): NavTab {
@@ -48,6 +49,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user, 
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['ADMINISTRADOR'] },
     { id: 'garita', label: 'Control Garita', icon: ScanLine, roles: ['ADMINISTRADOR', 'SEGURIDAD'] },
     { id: 'invitados', label: 'Visitas / Invitados', icon: UserPlus, roles: ['ADMINISTRADOR', 'EMPLEADO'] },
+    { id: 'eventos', label: 'Eventos & Cupos', icon: Calendar, roles: ['ADMINISTRADOR', 'EMPLEADO'] },
     { id: 'historial', label: 'Bitácora de Accesos', icon: ClipboardList, roles: ['ADMINISTRADOR'] },
     { id: 'users', label: 'Usuarios & Personal', icon: Users, roles: ['ADMINISTRADOR'] },
     { id: 'noticias', label: 'Cartelera Informativa', icon: Newspaper, roles: ['ADMINISTRADOR', 'EMPLEADO'] },

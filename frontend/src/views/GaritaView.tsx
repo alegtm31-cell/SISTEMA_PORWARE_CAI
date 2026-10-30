@@ -19,12 +19,14 @@ import {
   RefreshCw,
   CloudOff,
   Trash2,
+  Calendar,
+  UserPlus,
 } from 'lucide-react';
 import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '../services/api';
 import { offlineQueue, type OfflineMovementItem } from '../services/offlineQueue';
 import { isSignedQrString } from '../utils/qrPass';
-import type { PersonaLookup, TipoAcceso, Usuario } from '../types';
+import type { PersonaLookup, TipoAcceso, Usuario, EventoGaritaHoy } from '../types';
 
 interface GaritaViewProps {
   user?: Usuario | null;
@@ -60,6 +62,16 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
   // Cola offline real (IndexedDB)
   const [offlineItems, setOfflineItems] = useState<OfflineMovementItem[]>([]);
   const [syncingOffline, setSyncingOffline] = useState(false);
+
+  // Eventos activos del día en Garita (GET /eventos/garita/hoy)
+  const [eventosHoy, setEventosHoy] = useState<EventoGaritaHoy[]>([]);
+  const [eventoSearch, setEventoSearch] = useState('');
+  const [altaEventoId, setAltaEventoId] = useState<string | null>(null);
+  const [altaCedula, setAltaCedula] = useState('');
+  const [altaNombre, setAltaNombre] = useState('');
+  const [altaApellido, setAltaApellido] = useState('');
+  const [altaPlaca, setAltaPlaca] = useState('');
+  const [savingAltaGarita, setSavingAltaGarita] = useState(false);
 
   // Estados para cámara escáner QR en vivo y sonido de confirmación
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -112,6 +124,48 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
     }
   }, []);
 
+  const loadEventosHoy = useCallback(async (searchTerm?: string) => {
+    try {
+      const list = await api.getEventosGaritaHoy(searchTerm);
+      setEventosHoy(list || []);
+    } catch {
+      // Silencioso si no hay red
+    }
+  }, []);
+
+  const handleAltaRapidaGarita = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!altaEventoId) return;
+    setSavingAltaGarita(true);
+    setFeedback(null);
+    try {
+      const res = await api.altaRapidaEventoGarita(altaEventoId, {
+        cedula: altaCedula.trim().toUpperCase(),
+        nombre: altaNombre.trim(),
+        apellido: altaApellido.trim(),
+        placa: altaPlaca.trim().toUpperCase() || undefined,
+      });
+      setAltaEventoId(null);
+      setAltaCedula('');
+      setAltaNombre('');
+      setAltaApellido('');
+      setAltaPlaca('');
+      await loadEventosHoy(eventoSearch);
+      setFeedback({
+        type: 'warning',
+        msg: res.mensaje || 'Visitante registrado en garita como PENDIENTE de aprobación por el anfitrión.',
+      });
+    } catch (err: any) {
+      playFeedbackSound('error');
+      setFeedback({
+        type: 'error',
+        msg: err?.message || 'No se pudo registrar el alta rápida en garita.',
+      });
+    } finally {
+      setSavingAltaGarita(false);
+    }
+  };
+
   const refreshOfflineQueue = useCallback(async () => {
     const list = await offlineQueue.listAll();
     setOfflineItems(list);
@@ -144,10 +198,14 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
 
   useEffect(() => {
     loadPersonasDentro();
+    loadEventosHoy();
     refreshOfflineQueue();
     inputRef.current?.focus();
 
-    const interval = setInterval(loadPersonasDentro, 15000);
+    const interval = setInterval(() => {
+      loadPersonasDentro();
+      loadEventosHoy(eventoSearch);
+    }, 15000);
     const onQueueUpdate = () => {
       refreshOfflineQueue();
     };
@@ -304,6 +362,7 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
         setPlacaVehiculo('');
         setScannedQrToken(undefined);
         await loadPersonasDentro();
+        await loadEventosHoy(eventoSearch);
         inputRef.current?.focus();
       } else if (result.queuedOffline) {
         // NUNCA reproducir sonido de éxito ni presentar como confirmado si quedó en cola offline
@@ -962,6 +1021,235 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
           </div>
         </div>
       </div>
+
+      {/* Sección Eventos de Hoy en Garita (Invitados APROBADOS + Alta Rápida en Puerta) */}
+      <div className="glass-panel" style={{ padding: '24px', marginTop: '24px' }}>
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+            <Calendar size={22} color="var(--cyan)" />
+            <div>
+              <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)', margin: 0 }}>
+                Eventos de Hoy — Invitados Autorizados ({eventosHoy.length})
+              </h3>
+              <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', margin: 0 }}>
+                Lista de visitantes con estado APROBADO en eventos activos hoy y solicitud de alta en puerta
+              </p>
+            </div>
+          </div>
+
+          <div style={{ display: 'flex', gap: '10px', alignItems: 'center' }}>
+            <div style={{ position: 'relative', width: '250px' }}>
+              <Search size={15} color="var(--text-dim)" style={{ position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)' }} />
+              <input
+                type="text"
+                className="form-input"
+                style={{ paddingLeft: '32px', fontSize: '0.82rem', padding: '7px 10px 7px 32px' }}
+                placeholder="Buscar invitado por cédula..."
+                value={eventoSearch}
+                onChange={(e) => {
+                  setEventoSearch(e.target.value);
+                  loadEventosHoy(e.target.value);
+                }}
+              />
+            </div>
+
+            <button
+              type="button"
+              onClick={() => loadEventosHoy(eventoSearch)}
+              className="btn-ghost"
+              style={{ padding: '7px 12px', fontSize: '0.78rem' }}
+            >
+              <RefreshCw size={14} />
+              <span>Actualizar</span>
+            </button>
+          </div>
+        </div>
+
+        {eventosHoy.length === 0 ? (
+          <div style={{ textAlign: 'center', padding: '24px', color: 'var(--text-dim)', fontSize: '0.86rem' }}>
+            No hay eventos activos programados para este momento.
+          </div>
+        ) : (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+            {eventosHoy.map((ev) => (
+              <div
+                key={ev.id}
+                style={{
+                  background: 'var(--bg-surface)',
+                  border: '1px solid var(--border-subtle)',
+                  borderRadius: '10px',
+                  padding: '16px',
+                }}
+              >
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '10px', marginBottom: '12px' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                      <strong style={{ fontSize: '0.98rem', color: 'var(--text-main)' }}>{ev.nombre}</strong>
+                      <span className="badge badge-entrada">
+                        Cupos libres: {ev.cuposDisponibles} / {ev.aforo}
+                      </span>
+                    </div>
+                    <div style={{ fontSize: '0.76rem', color: 'var(--text-muted)', marginTop: '3px' }}>
+                      Anfitrión: <strong>{ev.anfitrion}</strong> • Hasta: {new Date(ev.fin).toLocaleTimeString('es-VE', { hour: '2-digit', minute: '2-digit' })}
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className="btn-ghost"
+                    style={{ padding: '6px 12px', fontSize: '0.78rem', color: 'var(--cyan)', borderColor: 'rgba(14, 165, 233, 0.35)' }}
+                    onClick={() => setAltaEventoId(ev.id)}
+                    disabled={ev.cuposDisponibles <= 0}
+                  >
+                    <UserPlus size={14} />
+                    <span>Anunciar en Puerta (Pendiente Anfitrión)</span>
+                  </button>
+                </div>
+
+                {ev.invitadosAprobados.length === 0 ? (
+                  <div style={{ fontSize: '0.8rem', color: 'var(--text-dim)', padding: '8px 0' }}>
+                    Sin invitados aprobados que coincidan con la búsqueda.
+                  </div>
+                ) : (
+                  <div style={{ overflowX: 'auto' }}>
+                    <table className="forti-table" style={{ width: '100%' }}>
+                      <thead>
+                        <tr>
+                          <th>Cédula</th>
+                          <th>Invitado Aprobado</th>
+                          <th>Placa</th>
+                          <th>Estado en Planta</th>
+                          <th style={{ textAlign: 'right' }}>Control Acceso</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {ev.invitadosAprobados.map((inv) => (
+                          <tr key={inv.eventoInvitadoId}>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>
+                              {inv.cedula}
+                            </td>
+                            <td>
+                              <div style={{ fontWeight: 600, color: 'var(--text-main)' }}>
+                                {inv.nombre} {inv.apellido}
+                              </div>
+                            </td>
+                            <td style={{ fontFamily: 'var(--font-mono)', fontSize: '0.78rem' }}>
+                              {inv.placa || '—'}
+                            </td>
+                            <td>
+                              <span className={`badge ${inv.estaDentro ? 'badge-entrada' : 'badge-seguridad'}`}>
+                                {inv.estaDentro ? 'DENTRO' : 'POR INGRESAR'}
+                              </span>
+                            </td>
+                            <td style={{ textAlign: 'right' }}>
+                              <button
+                                type="button"
+                                className="btn-primary"
+                                style={{ padding: '5px 10px', fontSize: '0.75rem' }}
+                                onClick={() => executeLookupByCode(inv.cedula)}
+                              >
+                                <ScanLine size={13} />
+                                <span>Cargar en Escáner</span>
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Modal de Alta Rápida en Puerta (Origen: GARITA -> PENDIENTE) */}
+      {altaEventoId && (
+        <div
+          style={{
+            position: 'fixed',
+            inset: 0,
+            background: 'rgba(0,0,0,0.7)',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            zIndex: 100,
+            padding: '16px',
+          }}
+        >
+          <div className="glass-panel" style={{ width: '100%', maxWidth: '420px', padding: '24px' }}>
+            <h3 style={{ fontSize: '1.05rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '6px' }}>
+              Anunciar Visitante de Evento en Garita
+            </h3>
+            <p style={{ fontSize: '0.78rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              El visitante quedará con origen <strong>GARITA</strong> en estado <strong>PENDIENTE</strong> hasta que el anfitrión lo apruebe desde su panel.
+            </p>
+
+            <form onSubmit={handleAltaRapidaGarita} style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Cédula *
+                </label>
+                <input
+                  type="text"
+                  required
+                  className="form-input"
+                  placeholder="V-24555666"
+                  value={altaCedula}
+                  onChange={(e) => setAltaCedula(e.target.value.toUpperCase())}
+                />
+              </div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Nombre *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="form-input"
+                    value={altaNombre}
+                    onChange={(e) => setAltaNombre(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                    Apellido *
+                  </label>
+                  <input
+                    type="text"
+                    required
+                    className="form-input"
+                    value={altaApellido}
+                    onChange={(e) => setAltaApellido(e.target.value)}
+                  />
+                </div>
+              </div>
+              <div>
+                <label style={{ display: 'block', fontSize: '0.76rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
+                  Placa Vehículo (Opcional)
+                </label>
+                <input
+                  type="text"
+                  className="form-input"
+                  value={altaPlaca}
+                  onChange={(e) => setAltaPlaca(e.target.value.toUpperCase())}
+                />
+              </div>
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '8px', marginTop: '8px' }}>
+                <button type="button" className="btn-ghost" onClick={() => setAltaEventoId(null)}>
+                  Cancelar
+                </button>
+                <button type="submit" className="btn-primary" disabled={savingAltaGarita}>
+                  <span>{savingAltaGarita ? 'Enviando...' : 'Solicitar Aprobación al Anfitrión'}</span>
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
     </div>
   );
 };

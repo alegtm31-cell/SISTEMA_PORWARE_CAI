@@ -16,6 +16,7 @@ const TAB_TITLES: Record<NavTab, { title: string; subtitle: string }> = {
   garita: { title: 'Control de Garita & Escáner', subtitle: 'Verificación de identidad QR / Cédula y personal en planta' },
   historial: { title: 'Bitácora de Auditoría', subtitle: 'Registro histórico inmutable de movimientos' },
   invitados: { title: 'Visitas & Pases QR', subtitle: 'Autorización de visitantes y emisión de pases firmados' },
+  eventos: { title: 'Eventos & Cupos', subtitle: 'Gestión de eventos, enlaces HMAC compartidos y aprobación de invitados' },
   users: { title: 'Directorio de Personal', subtitle: 'Gestión de empleados y operadores de seguridad' },
   noticias: { title: 'Cartelera Informativa', subtitle: 'Avisos operativos y protocolos vigentes' },
   settings: { title: 'Ajustes del Sistema', subtitle: 'Preferencias de apariencia, sesión y seguridad de cuenta' },

@@ -7,6 +7,8 @@ import { DashboardView } from './views/DashboardView';
 import { GaritaView } from './views/GaritaView';
 import { HistorialView } from './views/HistorialView';
 import { InvitadosView } from './views/InvitadosView';
+import { EventosView } from './views/EventosView';
+import { UnirseEventoPublicView } from './views/UnirseEventoPublicView';
 import { UsersView } from './views/UsersView';
 import { NoticiasView } from './views/NoticiasView';
 import { SettingsView } from './views/SettingsView';
@@ -53,6 +55,18 @@ export function App() {
   const [pwdError, setPwdError] = useState('');
 
   const { themeMode, resolvedTheme, setTheme, cycleTheme } = useTheme();
+
+  // Detectar si se accedió a la vista pública de inscripción a evento (?eventoToken=... o /unirse)
+  const publicEventRoute = (() => {
+    if (typeof window === 'undefined') return { isPublicJoin: false, token: '' };
+    const params = new URLSearchParams(window.location.search);
+    const token = params.get('eventoToken') || params.get('token') || '';
+    const isUnirsePath =
+      window.location.pathname === '/unirse' ||
+      window.location.pathname.endsWith('/unirse') ||
+      Boolean(token);
+    return { isPublicJoin: isUnirsePath, token };
+  })();
 
   const handleLogout = useCallback(async () => {
     await api.logout();
@@ -146,6 +160,10 @@ export function App() {
       setPwdLoading(false);
     }
   };
+
+  if (publicEventRoute.isPublicJoin) {
+    return <UnirseEventoPublicView initialToken={publicEventRoute.token} />;
+  }
 
   if (!user) {
     return <LoginView onLoginSuccess={handleLoginSuccess} />;
@@ -312,6 +330,8 @@ export function App() {
         return user.rol === 'ADMINISTRADOR' ? <HistorialView /> : null;
       case 'invitados':
         return user.rol === 'ADMINISTRADOR' || user.rol === 'EMPLEADO' ? <InvitadosView user={user} /> : null;
+      case 'eventos':
+        return user.rol === 'ADMINISTRADOR' || user.rol === 'EMPLEADO' ? <EventosView user={user} /> : null;
       case 'users':
         return user.rol === 'ADMINISTRADOR' ? <UsersView /> : null;
       case 'noticias':

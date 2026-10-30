@@ -15,8 +15,10 @@ import { HistorialService } from '../src/historial/historial.service';
 import { NoticiasController } from '../src/noticias/noticias.controller';
 import { AuditoriaController } from '../src/auditoria/auditoria.controller';
 import { HealthController } from '../src/health/health.controller';
+import { EventosController } from '../src/eventos/eventos.controller';
+import { EventosService } from '../src/eventos/eventos.service';
 import { RolesGuard } from '../src/auth/roles.guard';
-import { signQrPassPayload, verifyQrPassToken } from '../src/common/utils/qr-pass.util';
+import { signQrPassPayload, verifyQrPassToken, signEventJoinToken } from '../src/common/utils/qr-pass.util';
 import { validateRuntimeSecrets } from '../src/common/utils/env-validation.util';
 import { runSeed } from '../prisma/seed';
 import * as bcrypt from 'bcryptjs';
@@ -900,6 +902,468 @@ async function runTests() {
     // Restaurar estado por defecto del mock
     visitaEstadoMock = 'AUTORIZADA';
     visitaExpiracionMock = new Date(Date.now() + 3600_000);
+  });
+
+  // =========================================================================
+  // 12. PRUEBAS DEL MÓDULO DE EVENTOS Y CUPOS COMPARTIDOS (TAREA 2)
+  // =========================================================================
+  await test('Eventos RBAC: SEGURIDAD recibe 403 al intentar crear, listar, editar o aprobar eventos, y solo accede a /eventos/garita/*', async () => {
+    assertForbiddenForRole(EventosController, 'create', seguridadUser);
+    assertForbiddenForRole(EventosController, 'findAll', seguridadUser);
+    assertForbiddenForRole(EventosController, 'findOne', seguridadUser);
+    assertForbiddenForRole(EventosController, 'update', seguridadUser);
+    assertForbiddenForRole(EventosController, 'cerrar', seguridadUser);
+    assertForbiddenForRole(EventosController, 'cancelar', seguridadUser);
+    assertForbiddenForRole(EventosController, 'toggleCodigo', seguridadUser);
+    assertForbiddenForRole(EventosController, 'regenerarCodigo', seguridadUser);
+    assertForbiddenForRole(EventosController, 'agregarInvitadoAnfitrion', seguridadUser);
+    assertForbiddenForRole(EventosController, 'aprobarInvitado', seguridadUser);
+    assertForbiddenForRole(EventosController, 'rechazarInvitado', seguridadUser);
+    assertForbiddenForRole(EventosController, 'revocarInvitado', seguridadUser);
+
+    // SEGURIDAD sí tiene acceso a la vista de eventos de hoy en garita y alta en puerta
+    assertAllowedForRole(EventosController, 'getEventosGaritaHoy', seguridadUser);
+    assertAllowedForRole(EventosController, 'altaEnGarita', seguridadUser);
+
+    // EMPLEADO tiene acceso a gestión de sus eventos pero 403 en endpoints de garita
+    assertAllowedForRole(EventosController, 'create', empleadoUser);
+    assertAllowedForRole(EventosController, 'findAll', empleadoUser);
+    assertAllowedForRole(EventosController, 'aprobarInvitado', empleadoUser);
+    assertForbiddenForRole(EventosController, 'getEventosGaritaHoy', empleadoUser);
+    assertForbiddenForRole(EventosController, 'altaEnGarita', empleadoUser);
+  });
+
+  // Estado en memoria para pruebas integrales de EventosService + AccessService
+  const eventosMem: any[] = [];
+  const invitadosMem: any[] = [
+    {
+      id: 'inv-vetado-1',
+      cedula: 'V-99999999',
+      nombre: 'Visitante',
+      apellido: 'Vetado',
+      bloqueado: true,
+      motivoBloqueo: 'Prohibición de ingreso permanente',
+      eliminado: false,
+      empleadoId: 'emp-1',
+    },
+  ];
+  const eventoInvitadosMem: any[] = [];
+  const visitasMem: any[] = [];
+
+  const mockPrismaEventos: any = {
+    $transaction: async (cb: (tx: any) => Promise<any>) => cb(mockPrismaEventos),
+    usuario: {
+      findUnique: async ({ where }: any) => {
+        if (where.id === 'emp-1') {
+          return { id: 'emp-1', cedula: 'V-30000001', nombre: 'Juan', apellido: 'Pérez', email: 'juan@porware.com', rol: 'EMPLEADO' };
+        }
+        if (where.id === 'emp-2') {
+          return { id: 'emp-2', cedula: 'V-30000002', nombre: 'Ana', apellido: 'Gómez', email: 'ana@porware.com', rol: 'EMPLEADO' };
+        }
+        return null;
+      },
+      findFirst: async () => null,
+    },
+    evento: {
+      findMany: async ({ where }: any) => {
+        if (where?.estado === 'ACTIVO' && where?.fin?.lt) {
+          return eventosMem.filter((e) => e.estado === 'ACTIVO' && new Date(e.fin).getTime() < where.fin.lt.getTime());
+        }
+        return eventosMem
+          .filter((e) => (!where?.anfitrionId ? true : e.anfitrionId === where.anfitrionId))
+          .map((e) => ({
+            ...e,
+            invitados: eventoInvitadosMem
+              .filter((rel) => rel.eventoId === e.id)
+              .map((rel) => ({
+                ...rel,
+                invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+                visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+              })),
+          }));
+      },
+      findUnique: async ({ where }: any) => {
+        const ev = eventosMem.find((e) => e.id === where.id);
+        if (!ev) return null;
+        return {
+          ...ev,
+          anfitrion: { id: ev.anfitrionId, nombre: 'Juan', apellido: 'Pérez', cedula: 'V-30000001', email: 'juan@porware.com' },
+          invitados: eventoInvitadosMem
+            .filter((rel) => rel.eventoId === ev.id)
+            .map((rel) => ({
+              ...rel,
+              invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+              visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+            })),
+        };
+      },
+      create: async ({ data }: any) => {
+        const created = {
+          id: `evt-${eventosMem.length + 1}`,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+          anfitrion: { id: data.anfitrionId, nombre: 'Juan', apellido: 'Pérez', cedula: 'V-30000001', email: 'juan@porware.com' },
+          invitados: [],
+        };
+        eventosMem.push(created);
+        return created;
+      },
+      update: async ({ where, data }: any) => {
+        const ev = eventosMem.find((e) => e.id === where.id);
+        Object.assign(ev, data, { updatedAt: new Date() });
+        return {
+          ...ev,
+          anfitrion: { id: ev.anfitrionId, nombre: 'Juan', apellido: 'Pérez', cedula: 'V-30000001', email: 'juan@porware.com' },
+          invitados: eventoInvitadosMem
+            .filter((rel) => rel.eventoId === ev.id)
+            .map((rel) => ({
+              ...rel,
+              invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+              visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+            })),
+        };
+      },
+      updateMany: async ({ where, data }: any) => {
+        const ids: string[] = where?.id?.in || [];
+        eventosMem.forEach((e) => {
+          if (ids.includes(e.id)) {
+            Object.assign(e, data);
+          }
+        });
+        return { count: ids.length };
+      },
+    },
+    invitado: {
+      findUnique: async ({ where }: any) => {
+        if (where.cedula) {
+          return invitadosMem.find((g) => g.cedula.toUpperCase() === where.cedula.toUpperCase()) || null;
+        }
+        if (where.id) {
+          return invitadosMem.find((g) => g.id === where.id) || null;
+        }
+        return null;
+      },
+      findFirst: async ({ where }: any) => {
+        const conds = where?.OR || [];
+        const found = invitadosMem.find((g) =>
+          conds.some(
+            (c: any) =>
+              c.id === g.id ||
+              (c.cedula?.equals && g.cedula.toUpperCase() === c.cedula.equals.toUpperCase()),
+          ),
+        );
+        return found || null;
+      },
+      create: async ({ data }: any) => {
+        const created = {
+          id: `inv-evt-${invitadosMem.length + 1}`,
+          bloqueado: false,
+          motivoBloqueo: null,
+          ...data,
+          createdAt: new Date(),
+        };
+        invitadosMem.push(created);
+        return created;
+      },
+      update: async ({ where, data }: any) => {
+        const g = invitadosMem.find((x) => x.id === where.id);
+        Object.assign(g, data);
+        return g;
+      },
+    },
+    eventoInvitado: {
+      findUnique: async ({ where }: any) => {
+        const rel = eventoInvitadosMem.find((r) => r.id === where.id);
+        if (!rel) return null;
+        return {
+          ...rel,
+          invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+          visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+        };
+      },
+      create: async ({ data }: any) => {
+        const rel = {
+          id: `rel-${eventoInvitadosMem.length + 1}`,
+          ...data,
+          createdAt: new Date(),
+        };
+        eventoInvitadosMem.push(rel);
+        return {
+          ...rel,
+          invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+          visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+        };
+      },
+      update: async ({ where, data }: any) => {
+        const rel = eventoInvitadosMem.find((r) => r.id === where.id);
+        Object.assign(rel, data);
+        return {
+          ...rel,
+          invitado: invitadosMem.find((g) => g.id === rel.invitadoId),
+          visita: visitasMem.find((v) => v.id === rel.visitaId) || null,
+        };
+      },
+    },
+    visita: {
+      create: async ({ data }: any) => {
+        const v = {
+          id: `vis-evt-${visitasMem.length + 1}`,
+          ...data,
+          createdAt: new Date(),
+          updatedAt: new Date(),
+        };
+        visitasMem.push(v);
+        return v;
+      },
+      findUnique: async ({ where }: any) => visitasMem.find((v) => v.id === where.id) || null,
+      findFirst: async ({ where }: any) => {
+        const list = visitasMem.filter((v) => v.invitadoId === where.invitadoId);
+        return list.length > 0 ? list[list.length - 1] : null;
+      },
+      update: async ({ where, data }: any) => {
+        const v = visitasMem.find((x) => x.id === where.id);
+        if (v) Object.assign(v, data);
+        return v;
+      },
+      updateMany: async ({ where, data }: any) => {
+        const ids: string[] = where?.id?.in || [];
+        visitasMem.forEach((v) => {
+          if (ids.includes(v.id)) {
+            Object.assign(v, data);
+          }
+        });
+        return { count: ids.length };
+      },
+    },
+    historial: {
+      findFirst: async () => null,
+      create: async ({ data }: any) => ({
+        id: 'hist-evt-1',
+        ...data,
+        timestamp: new Date(),
+      }),
+    },
+  };
+
+  const eventosService = new EventosService(mockPrismaEventos, mockAuditoriaService);
+  const accessEventosService = new AccessService(mockPrismaEventos, mockAuditoriaService);
+
+  await test('Eventos: unirse con token válido -> PENDIENTE (o APROBADO si no requiere aprobación); rechaza token vencido, adulterado o de evento cerrado', async () => {
+    const inicio = new Date(Date.now() + 60_000).toISOString();
+    const fin = new Date(Date.now() + 7200_000).toISOString();
+
+    const ev = await eventosService.create(
+      {
+        nombre: 'Asamblea de Propietarios',
+        inicio,
+        fin,
+        aforo: 2,
+        requiereAprobacion: true,
+      },
+      empleadoUser,
+    );
+
+    assert.ok(ev.tokenUnion && ev.tokenUnion.startsWith('CAI-EVT:'));
+
+    // 1. Unión válida -> queda PENDIENTE
+    const joinRes = await eventosService.unirsePublico(
+      {
+        token: ev.tokenUnion,
+        cedula: 'V-40111222',
+        nombre: 'Laura',
+        apellido: 'Suárez',
+        placa: 'AA111BB',
+      },
+      '192.168.1.50',
+    );
+    assert.strictEqual(joinRes.ok, true);
+    assert.strictEqual(joinRes.estado, 'PENDIENTE');
+
+    // 2. Token adulterado -> rechazado con 403
+    const tampered = ev.tokenUnion.slice(0, -2) + (ev.tokenUnion.endsWith('00') ? '11' : '00');
+    await assert.rejects(
+      async () => {
+        await eventosService.unirsePublico({
+          token: tampered,
+          cedula: 'V-40333444',
+          nombre: 'Pedro',
+          apellido: 'Soto',
+        });
+      },
+      (err: any) => err instanceof ForbiddenException,
+    );
+
+    // 3. Token expirado -> rechazado con 403
+    const expiredToken = signEventJoinToken({
+      eventoId: ev.id,
+      nonce: ev.nonceCodigo,
+      v: new Date(Date.now() - 60_000).toISOString(),
+    });
+    await assert.rejects(
+      async () => {
+        await eventosService.unirsePublico({
+          token: expiredToken,
+          cedula: 'V-40333444',
+          nombre: 'Pedro',
+          apellido: 'Soto',
+        });
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('expirado'),
+    );
+
+    // 4. Evento sin requerir aprobación -> unión directa en estado APROBADO
+    const evAuto = await eventosService.create(
+      {
+        nombre: 'Charla Abierta',
+        inicio,
+        fin,
+        aforo: 5,
+        requiereAprobacion: false,
+      },
+      empleadoUser,
+    );
+    const joinAuto = await eventosService.unirsePublico({
+      token: evAuto.tokenUnion,
+      cedula: 'V-40555666',
+      nombre: 'Miguel',
+      apellido: 'Rivas',
+    });
+    assert.strictEqual(joinAuto.estado, 'APROBADO');
+  });
+
+  await test('Eventos: cupo duro (aforo lleno) rechaza nuevas uniones, e invitado con bloqueado=true es rechazado al unirse y en garita', async () => {
+    const ev = eventosMem[0]; // Asamblea de Propietarios (aforo = 2, ya tiene 1 PENDIENTE: Laura V-40111222)
+    const token = signEventJoinToken({
+      eventoId: ev.id,
+      nonce: ev.nonceCodigo,
+      v: new Date(ev.fin).toISOString(),
+    });
+
+    // 1. Invitado bloqueado (V-99999999) no puede unirse por enlace público
+    await assert.rejects(
+      async () => {
+        await eventosService.unirsePublico({
+          token,
+          cedula: 'V-99999999',
+          nombre: 'Visitante',
+          apellido: 'Vetado',
+        });
+      },
+      (err: any) => err instanceof ForbiddenException,
+    );
+
+    // 2. Invitado bloqueado tampoco puede darse de alta en garita ni ingresar
+    await assert.rejects(
+      async () => {
+        await eventosService.altaEnGarita(
+          ev.id,
+          { cedula: 'V-99999999', nombre: 'Visitante', apellido: 'Vetado' },
+          seguridadUser,
+        );
+      },
+      (err: any) => err instanceof ForbiddenException,
+    );
+    await assert.rejects(
+      async () => {
+        await accessEventosService.registerAccess('V-99999999', true, 'ENTRADA', undefined, 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('BLOQUEADO'),
+    );
+
+    // 3. Llenar el segundo cupo con alta en garita (origen = GARITA, estado = PENDIENTE)
+    auditoriaLogs.length = 0;
+    const altaGaritaRes = await eventosService.altaEnGarita(
+      ev.id,
+      { cedula: 'V-40222333', nombre: 'Sofía', apellido: 'Morales', placa: 'CC222DD' },
+      seguridadUser,
+    );
+    assert.strictEqual(altaGaritaRes.origen, 'GARITA');
+    assert.strictEqual(altaGaritaRes.estado, 'PENDIENTE');
+    assert.ok(auditoriaLogs.some((a) => a.accion === 'ALTA_GARITA_EVENTO' && a.usuarioId === seguridadUser.id));
+
+    // 4. Con 2 de 2 cupos ocupados, un tercer invitado es rechazado por aforo lleno
+    await assert.rejects(
+      async () => {
+        await eventosService.unirsePublico({
+          token,
+          cedula: 'V-40777888',
+          nombre: 'Tercer',
+          apellido: 'Invitado',
+        });
+      },
+      (err: any) => err instanceof BadRequestException && err.message.includes('Cupo agotado'),
+    );
+  });
+
+  await test('Eventos: aprobar invitado crea Visita con vencimiento del evento y permite check-in; tras pasar fin o cerrar evento se rechaza check-in; token CAI-EVT directo en garita es rechazado', async () => {
+    const ev = eventosMem[0];
+    const relLaura = eventoInvitadosMem.find((r) => r.eventoId === ev.id);
+
+    // 1. Usar el token compartido CAI-EVT directamente en garita NUNCA autoriza entrada
+    const eventShareToken = signEventJoinToken({
+      eventoId: ev.id,
+      nonce: ev.nonceCodigo,
+      v: new Date(ev.fin).toISOString(),
+    });
+    await assert.rejects(
+      async () => {
+        await accessEventosService.registerAccess(eventShareToken, true, 'ENTRADA', undefined, 'seg-1', eventShareToken);
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('CAI-EVT'),
+    );
+
+    // 2. Antes de aprobar a Laura (V-40111222), no tiene Visita -> check-in por cédula rechazado con 403
+    await assert.rejects(
+      async () => {
+        await accessEventosService.registerAccess('V-40111222', true, 'ENTRADA', undefined, 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('Sin visita autorizada vigente'),
+    );
+
+    // 3. EMPLEADO de otro departamento (emp-2) recibe 403 al intentar ver, editar o aprobar el evento de emp-1
+    const otroEmpleado = { id: 'emp-2', rol: 'EMPLEADO', debeCambiarClave: false };
+    await assert.rejects(
+      async () => {
+        await eventosService.findOne(ev.id, otroEmpleado);
+      },
+      (err: any) => err instanceof ForbiddenException,
+    );
+    await assert.rejects(
+      async () => {
+        await eventosService.aprobarInvitado(ev.id, relLaura.id, otroEmpleado);
+      },
+      (err: any) => err instanceof ForbiddenException,
+    );
+
+    // 4. El anfitrión dueño (emp-1) aprueba a Laura -> crea Visita AUTORIZADA con fechaExpiracion = ev.fin
+    const approved = await eventosService.aprobarInvitado(ev.id, relLaura.id, empleadoUser);
+    assert.strictEqual(approved.estado, 'APROBADO');
+    assert.ok(approved.visitaId);
+    assert.strictEqual(
+      new Date(approved.visita.fechaExpiracion).getTime(),
+      new Date(ev.fin).getTime(),
+    );
+
+    // 5. Ahora Laura puede hacer check-in en garita
+    const entryOk = await accessEventosService.registerAccess('V-40111222', true, 'ENTRADA', 'Ingreso evento', 'seg-1');
+    assert.strictEqual(entryOk.tipo, 'ENTRADA');
+    assert.strictEqual(entryOk.visitaId, approved.visitaId);
+
+    // 6. Al pasar la hora de fin del evento (cierre automático), la visita expira y se rechaza nuevo check-in y nuevas uniones
+    ev.fin = new Date(Date.now() - 5_000);
+    const createdVisita = visitasMem.find((v) => v.id === approved.visitaId);
+    createdVisita.fechaExpiracion = ev.fin;
+
+    await eventosService.sincronizarEventosVencidos();
+    assert.strictEqual(ev.estado, 'CERRADO');
+
+    await assert.rejects(
+      async () => {
+        await accessEventosService.registerAccess('V-40111222', true, 'ENTRADA', 'Intento tras fin de evento', 'seg-1');
+      },
+      (err: any) => err instanceof ForbiddenException && err.message.includes('Sin visita autorizada vigente'),
+    );
   });
 
   console.log(`\n📊 Resumen de Pruebas: ${passed} exitosas, ${failed} fallidas.`);
