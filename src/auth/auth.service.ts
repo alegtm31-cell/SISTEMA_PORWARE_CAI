@@ -6,6 +6,7 @@ import { AuditoriaService } from '../auditoria/auditoria.service';
 import { LoginDto } from './dto/login.dto';
 import { JwtPayload } from './jwt.strategy';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
+import { RegisterAccountDto } from './dto/register-account.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 
@@ -15,7 +16,7 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly auditoriaService: AuditoriaService,
-  ) {}
+  ) { }
 
   async validateUser(identifier: string, rawPass: string, ip?: string, userAgent?: string) {
     const cleanId = identifier.trim();
@@ -96,7 +97,112 @@ export class AuthService {
     return {
       message: 'Inicio de sesión exitoso',
       accessToken,
+      access_token: accessToken,
       user,
+    };
+  }
+
+  async registerAccount(dto: RegisterAccountDto, ip?: string, userAgent?: string) {
+    const cleanCedula = dto.cedula.trim().toUpperCase();
+    const cleanEmail = dto.email.trim().toLowerCase();
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+    const targetRol = dto.rol || 'ADMINISTRADOR';
+
+    const existingByCedula = await this.prisma.usuario.findFirst({
+      where: { cedula: { equals: cleanCedula, mode: 'insensitive' } },
+    });
+
+    const existingByEmail = await this.prisma.usuario.findFirst({
+      where: { email: { equals: cleanEmail, mode: 'insensitive' } },
+    });
+
+    if (existingByEmail && (!existingByCedula || existingByEmail.id !== existingByCedula.id)) {
+      throw new BadRequestException('Este correo electrónico ya está registrado en otra cuenta.');
+    }
+
+    let savedUser;
+    if (existingByCedula) {
+      savedUser = await this.prisma.usuario.update({
+        where: { id: existingByCedula.id },
+        data: {
+          nombre: dto.nombre.trim(),
+          apellido: dto.apellido.trim(),
+          email: cleanEmail,
+          password: hashedPassword,
+          rol: targetRol,
+          registroCompletado: true,
+          debeCambiarClave: false,
+        },
+        select: {
+          id: true,
+          cedula: true,
+          nombre: true,
+          apellido: true,
+          email: true,
+          rol: true,
+          cargo: true,
+          departamento: true,
+          telefonoMovil: true,
+          telefonoFijo: true,
+          fotoUrl: true,
+          registroCompletado: true,
+          debeCambiarClave: true,
+        },
+      });
+    } else {
+      savedUser = await this.prisma.usuario.create({
+        data: {
+          cedula: cleanCedula,
+          nombre: dto.nombre.trim(),
+          apellido: dto.apellido.trim(),
+          email: cleanEmail,
+          password: hashedPassword,
+          rol: targetRol,
+          registroCompletado: true,
+          debeCambiarClave: false,
+        },
+        select: {
+          id: true,
+          cedula: true,
+          nombre: true,
+          apellido: true,
+          email: true,
+          rol: true,
+          cargo: true,
+          departamento: true,
+          telefonoMovil: true,
+          telefonoFijo: true,
+          fotoUrl: true,
+          registroCompletado: true,
+          debeCambiarClave: true,
+        },
+      });
+    }
+
+    const payload: JwtPayload = {
+      sub: savedUser.id,
+      cedula: savedUser.cedula,
+      email: savedUser.email,
+      rol: savedUser.rol,
+    };
+
+    const accessToken = this.jwtService.sign(payload);
+
+    await this.auditoriaService.registrar({
+      usuarioId: savedUser.id,
+      accion: 'REGISTRO_CUENTA_EMAIL',
+      entidad: 'Usuario',
+      entidadId: savedUser.id,
+      detalles: { cedula: savedUser.cedula, email: savedUser.email, rol: savedUser.rol },
+      ip,
+      userAgent,
+    });
+
+    return {
+      message: 'Cuenta registrada e inicio de sesión exitoso.',
+      accessToken,
+      access_token: accessToken,
+      user: savedUser,
     };
   }
 
@@ -221,6 +327,7 @@ export class AuthService {
     return {
       message: 'Registro completado exitosamente. Bienvenido al sistema CAI.',
       accessToken,
+      access_token: accessToken,
       user: updated,
     };
   }

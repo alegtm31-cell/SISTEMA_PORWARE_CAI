@@ -5,6 +5,7 @@ import { Request } from 'express';
 import { AuthService } from './auth.service';
 import { LoginDto } from './dto/login.dto';
 import { CompleteRegistroDto } from './dto/complete-registro.dto';
+import { RegisterAccountDto } from './dto/register-account.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
@@ -15,7 +16,7 @@ import { CurrentUser } from './current-user.decorator';
 @ApiTags('Autenticación y Registro')
 @Controller('api/v1/auth')
 export class AuthController {
-  constructor(private readonly authService: AuthService) {}
+  constructor(private readonly authService: AuthService) { }
 
   @Public()
   @Throttle({ default: { limit: 5, ttl: 60000 } }) // Máximo 5 intentos de login por minuto por IP
@@ -31,6 +32,19 @@ export class AuthController {
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] as string;
     return this.authService.login(loginDto, clientIp, userAgent);
+  }
+
+  @Public()
+  @Post('register')
+  @ApiOperation({
+    summary: 'Registrar cuenta con correo electrónico',
+    description: 'Registra una nueva cuenta con correo electrónico, cédula y rol, devolviendo sesión JWT activa.',
+  })
+  @ApiResponse({ status: 201, description: 'Cuenta registrada e inicio de sesión exitoso.' })
+  async registerAccount(@Body() dto: RegisterAccountDto, @Req() req: Request) {
+    const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
+    const userAgent = req.headers['user-agent'] as string;
+    return this.authService.registerAccount(dto, clientIp, userAgent);
   }
 
   @Public()

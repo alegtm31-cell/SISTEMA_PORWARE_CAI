@@ -186,24 +186,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div className="forti-card">
           <div className="forti-card-header">
             <span className="forti-card-title">
-              <Users size={14} color="var(--cyan)" />
-              Personas en Planta Ahora
+              <Users size={13} color="var(--cyan)" />
+              Personas en Planta
             </span>
             <span className="badge badge-admin">EN VIVO</span>
           </div>
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+              <div className="kpi-value" style={{ color: 'var(--text-main)' }}>
                 {loading ? '—' : stats.dentroAhora}
               </div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Ocupación activa verificada
-              </div>
+              <div className="kpi-sub">Ocupación activa</div>
             </div>
-            <div style={{ textAlign: 'right' }}>
-              <span style={{ fontSize: '0.72rem', color: 'var(--emerald)', fontWeight: 700 }}>
-                Control Anti-Passback
-              </span>
+            <div className="kpi-tag" style={{ color: 'var(--emerald)' }}>
+              Anti-Passback
             </div>
           </div>
         </div>
@@ -211,22 +207,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div className="forti-card">
           <div className="forti-card-header">
             <span className="forti-card-title">
-              <LogIn size={14} color="var(--emerald)" />
-              Entradas Registradas Hoy
+              <LogIn size={13} color="var(--emerald)" />
+              Entradas Hoy
             </span>
             <span className="badge badge-entrada">CHECK-IN</span>
           </div>
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--emerald)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+              <div className="kpi-value" style={{ color: 'var(--emerald)' }}>
                 {loading ? '—' : stats.entradasHoy}
               </div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Ingresos confirmados hoy
-              </div>
+              <div className="kpi-sub">Ingresos hoy</div>
             </div>
-            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
-              {pctEntradas}% del flujo
+            <div className="kpi-tag" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+              {pctEntradas}% flujo
             </div>
           </div>
         </div>
@@ -234,22 +228,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div className="forti-card">
           <div className="forti-card-header">
             <span className="forti-card-title">
-              <LogOut size={14} color="var(--amber)" />
-              Salidas Registradas Hoy
+              <LogOut size={13} color="var(--amber)" />
+              Salidas Hoy
             </span>
             <span className="badge badge-salida">CHECK-OUT</span>
           </div>
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--amber)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+              <div className="kpi-value" style={{ color: 'var(--amber)' }}>
                 {loading ? '—' : stats.salidasHoy}
               </div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Egresos confirmados hoy
-              </div>
+              <div className="kpi-sub">Egresos hoy</div>
             </div>
-            <div style={{ fontSize: '0.75rem', fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
-              {pctSalidas}% del flujo
+            <div className="kpi-tag" style={{ fontFamily: 'var(--font-mono)', color: 'var(--text-dim)' }}>
+              {pctSalidas}% flujo
             </div>
           </div>
         </div>
@@ -257,21 +249,19 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         <div className="forti-card">
           <div className="forti-card-header">
             <span className="forti-card-title">
-              <Activity size={14} color="var(--purple)" />
-              Total Histórico Bitácora
+              <Activity size={13} color="var(--purple)" />
+              Total Bitácora
             </span>
             <span className="badge badge-seguridad">AUDITORÍA</span>
           </div>
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
-              <div style={{ fontSize: '2.1rem', fontWeight: 800, color: 'var(--text-main)', fontFamily: 'var(--font-mono)', lineHeight: 1 }}>
+              <div className="kpi-value" style={{ color: 'var(--text-main)' }}>
                 {loading ? '—' : stats.totalRegistros}
               </div>
-              <div style={{ fontSize: '0.73rem', color: 'var(--text-muted)', marginTop: '6px' }}>
-                Eventos registrados en PostgreSQL
-              </div>
+              <div className="kpi-sub">Eventos en BD</div>
             </div>
-            <div style={{ fontSize: '0.72rem', color: 'var(--cyan)', fontWeight: 700 }}>
+            <div className="kpi-tag" style={{ color: 'var(--cyan)' }}>
               100% Trazable
             </div>
           </div>

@@ -31,6 +31,9 @@ const getBaseApiUrl = () => {
     const clean = envUrl.trim().replace(/\/$/, '');
     return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
   }
+  if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
+    return 'http://localhost:3000/api/v1';
+  }
   return '/api/v1';
 };
 
@@ -164,13 +167,50 @@ export const api = {
     }
 
     const data = await res.json();
-    if (!data?.access_token || !data?.user) {
+    const token = data?.access_token || data?.accessToken;
+    if (!token || !data?.user) {
       throw new Error('Respuesta de autenticación inválida del servidor.');
     }
 
-    localStorage.setItem('cai_token', data.access_token);
+    localStorage.setItem('cai_token', token);
     localStorage.setItem('cai_user', JSON.stringify(data.user));
-    return data;
+    return { access_token: token, user: data.user };
+  },
+
+  async registerAccount(payload: {
+    cedula: string;
+    nombre: string;
+    apellido: string;
+    email: string;
+    password: string;
+    rol?: 'ADMINISTRADOR' | 'SEGURIDAD' | 'EMPLEADO';
+  }): Promise<{ access_token: string; user: Usuario }> {
+    const API_URL = getBaseApiUrl();
+    let res: Response;
+    try {
+      res = await fetch(`${API_URL}/auth/register`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+    } catch {
+      throw new Error('No se pudo conectar con el servidor para registrar la cuenta.');
+    }
+
+    if (!res.ok) {
+      const { message } = await parseErrorMessage(res, 'No se pudo registrar la cuenta.');
+      throw new Error(message);
+    }
+
+    const data = await res.json();
+    const token = data?.access_token || data?.accessToken;
+    if (!token || !data?.user) {
+      throw new Error('Respuesta de registro inválida del servidor.');
+    }
+
+    localStorage.setItem('cai_token', token);
+    localStorage.setItem('cai_user', JSON.stringify(data.user));
+    return { access_token: token, user: data.user };
   },
 
   // Cambio obligatorio o voluntario de contraseña

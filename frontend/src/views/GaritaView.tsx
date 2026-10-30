@@ -602,27 +602,28 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
       <div className="responsive-two-col">
         {/* Panel Izquierdo: Escáner QR / Cédula */}
         <div className="glass-panel" style={{ padding: '28px', height: 'fit-content' }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '20px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '10px', marginBottom: '16px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
               <div
                 style={{
-                  width: '42px',
-                  height: '42px',
+                  width: '36px',
+                  height: '36px',
                   borderRadius: '10px',
                   background: 'rgba(56, 189, 248, 0.14)',
                   color: 'var(--accent-cyan)',
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'center',
+                  flexShrink: 0,
                 }}
               >
-                <ScanLine size={22} />
+                <ScanLine size={19} />
               </div>
-              <div>
-                <h3 style={{ fontSize: '1.1rem', fontWeight: 700, color: 'var(--text-main)' }}>
+              <div style={{ minWidth: 0 }}>
+                <h3 style={{ fontSize: '1rem', fontWeight: 700, color: 'var(--text-main)' }}>
                   Identificación QR / Cédula
                 </h3>
-                <p style={{ fontSize: '0.8rem', color: 'var(--text-muted)' }}>
+                <p style={{ fontSize: '0.76rem', color: 'var(--text-muted)' }}>
                   Lector óptico USB, cámara o ingreso manual
                 </p>
               </div>
@@ -635,12 +636,12 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
               style={{
                 borderColor: cameraOpen ? 'rgba(244, 63, 94, 0.4)' : 'rgba(56, 189, 248, 0.35)',
                 color: cameraOpen ? '#fb7185' : 'var(--accent-cyan)',
-                padding: '8px 12px',
-                fontSize: '0.8rem',
+                padding: '7px 11px',
+                fontSize: '0.76rem',
               }}
             >
-              {cameraOpen ? <X size={16} /> : <Camera size={16} />}
-              <span>{cameraOpen ? 'Cerrar Cámara' : 'Escanear con Cámara'}</span>
+              {cameraOpen ? <X size={15} /> : <Camera size={15} />}
+              <span>{cameraOpen ? 'Cerrar Cámara' : 'Escanear QR'}</span>
             </button>
           </div>
 
@@ -681,18 +682,18 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
               Número de Cédula o Token Pase QR (CAI2)
             </label>
 
-            <div style={{ display: 'flex', gap: '10px' }}>
+            <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap' }}>
               <input
                 ref={inputRef}
                 type="text"
                 className="form-input"
-                placeholder="Ej: V-10000001 o escanee el código QR..."
+                placeholder="Ej: V-10000001 o código QR..."
                 value={cedulaInput}
                 onChange={(e) => setCedulaInput(e.target.value)}
-                style={{ fontSize: '1.05rem', fontFamily: 'var(--font-mono)' }}
+                style={{ flex: '1 1 180px', minWidth: 0, fontSize: '0.92rem', fontFamily: 'var(--font-mono)' }}
               />
               <button type="submit" className="btn-primary" disabled={loading} style={{ flexShrink: 0 }}>
-                <Search size={18} />
+                <Search size={16} />
                 <span>{loading ? 'Verificando...' : 'Verificar'}</span>
               </button>
             </div>

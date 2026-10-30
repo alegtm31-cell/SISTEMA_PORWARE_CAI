@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Wifi, WifiOff, Clock, Shield, Sun, Moon, Laptop } from 'lucide-react';
+import { Wifi, WifiOff, Clock, Shield, Sun, Moon, Laptop, LogOut } from 'lucide-react';
 import { api } from '../services/api';
 import type { NavTab } from './Sidebar';
 import type { ThemeMode } from '../hooks/useTheme';
@@ -9,6 +9,7 @@ interface NavbarProps {
   themeMode: ThemeMode;
   resolvedTheme: 'dark' | 'light';
   onToggleTheme: () => void;
+  onLogout?: () => void;
 }
 
 const TAB_TITLES: Record<NavTab, { title: string; subtitle: string }> = {
@@ -22,7 +23,7 @@ const TAB_TITLES: Record<NavTab, { title: string; subtitle: string }> = {
   settings: { title: 'Ajustes del Sistema', subtitle: 'Preferencias de apariencia, sesión y seguridad de cuenta' },
 };
 
-export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTheme }) => {
+export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTheme, onLogout }) => {
   const [online, setOnline] = useState<boolean>(true);
   const [dbStatus, setDbStatus] = useState<string>('conectado');
   const [timeStr, setTimeStr] = useState<string>('');
@@ -203,6 +204,32 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTh
           <Clock size={12} color="var(--accent-cyan)" />
           <span>{timeStr}</span>
         </div>
+
+        {/* Botón rápido de Cerrar Sesión / Cambiar Cuenta */}
+        {onLogout && (
+          <button
+            type="button"
+            onClick={onLogout}
+            title="Cerrar sesión / Cambiar cuenta"
+            style={{
+              display: 'inline-flex',
+              alignItems: 'center',
+              gap: '4px',
+              padding: '5px 8px',
+              borderRadius: '4px',
+              background: 'rgba(239, 68, 68, 0.1)',
+              border: '1px solid rgba(239, 68, 68, 0.3)',
+              color: 'var(--rose)',
+              fontSize: '0.7rem',
+              fontWeight: 700,
+              cursor: 'pointer',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            <LogOut size={12} />
+            <span>Salir</span>
+          </button>
+        )}
       </div>
     </header>
   );

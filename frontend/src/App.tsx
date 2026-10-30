@@ -369,6 +369,7 @@ export function App() {
           themeMode={themeMode}
           resolvedTheme={resolvedTheme}
           onToggleTheme={cycleTheme}
+          onLogout={handleLogout}
         />
 
         <main className="main-scroll-area">{renderPermittedView()}</main>
