@@ -169,7 +169,7 @@ export class AccessService {
           if (tipo === 'SALIDA' && linkedVisitaId && (tx as any).visita?.update) {
             await (tx as any).visita.update({
               where: { id: linkedVisitaId },
-              data: { estado: 'FINALIZADA' },
+              data: { estado: 'COMPLETADA' },
             });
           }
 

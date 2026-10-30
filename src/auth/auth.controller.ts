@@ -8,6 +8,7 @@ import { CompleteRegistroDto } from './dto/complete-registro.dto';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { ChangePasswordDto } from './dto/change-password.dto';
 import { JwtAuthGuard } from './jwt-auth.guard';
+import { RolesGuard } from './roles.guard';
 import { Public, AllowPasswordChange } from './public.decorator';
 import { CurrentUser } from './current-user.decorator';
 
@@ -58,8 +59,7 @@ export class AuthController {
     return this.authService.completeRegistro(dto, clientIp, userAgent);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @AllowPasswordChange()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Get('profile')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -72,8 +72,7 @@ export class AuthController {
     return this.authService.getProfile(userId);
   }
 
-  @UseGuards(JwtAuthGuard)
-  @AllowPasswordChange()
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @Patch('profile')
   @ApiBearerAuth('JWT-auth')
   @ApiOperation({
@@ -89,7 +88,7 @@ export class AuthController {
     return this.authService.updateProfile(userId, dto);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @AllowPasswordChange()
   @Post('change-password')
   @HttpCode(HttpStatus.OK)
@@ -110,7 +109,7 @@ export class AuthController {
     return this.authService.changePassword(userId, dto, clientIp, userAgent);
   }
 
-  @UseGuards(JwtAuthGuard)
+  @UseGuards(JwtAuthGuard, RolesGuard)
   @AllowPasswordChange()
   @Post('logout')
   @HttpCode(HttpStatus.OK)

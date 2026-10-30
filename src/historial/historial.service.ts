@@ -275,7 +275,13 @@ export class HistorialService {
       timeStyle: 'medium',
     }).format(new Date());
 
-    const autor = user ? `${user.nombre} ${user.apellido} (${user.rol})` : 'Operador';
+    const autor =
+      typeof user === 'object' && user?.nombre
+        ? `${user.nombre} ${user.apellido} (${user.rol})`
+        : typeof user === 'string'
+          ? user
+          : 'Operador';
+    const autorId = typeof user === 'string' ? user : user?.id;
     const nuevaEntrada = `[${timeStr} - ${autor}]: ${observacion.trim()}`;
     const observacionFinal = record.observacion ? `${record.observacion}\n${nuevaEntrada}` : nuevaEntrada;
 
@@ -286,7 +292,7 @@ export class HistorialService {
 
     if (this.auditoriaService) {
       await this.auditoriaService.registrar({
-        usuarioId: user?.id,
+        usuarioId: autorId,
         accion: 'NOTA_BITACORA',
         entidad: 'Historial',
         entidadId: id,
