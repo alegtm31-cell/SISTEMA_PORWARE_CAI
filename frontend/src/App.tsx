@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Navbar } from './components/Navbar';
 import { Sidebar, type ActiveTab } from './components/Sidebar';
+import { DashboardView } from './views/DashboardView';
 import { GaritaView } from './views/GaritaView';
 import { UsersView } from './views/UsersView';
 import { InvitadosView } from './views/InvitadosView';
@@ -17,11 +18,22 @@ import { useTheme } from './hooks/useTheme';
 
 export const App: React.FC = () => {
   const { themeMode, resolvedTheme, setTheme } = useTheme();
-  const [activeTab, setActiveTab] = useState<ActiveTab>('garita');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
   const [user, setUser] = useState<Usuario | null>(null);
   const [isCarteleraWelcomeOpen, setIsCarteleraWelcomeOpen] = useState(false);
   const [noticias, setNoticias] = useState<Noticia[]>([]);
   const [isCheckingSession, setIsCheckingSession] = useState(true);
+  const [isMobileSidebarOpen, setIsMobileSidebarOpen] = useState(false);
+
+  const tabLabels: Record<ActiveTab, string> = {
+    dashboard: 'Dashboard Corporativo',
+    garita: 'Control Garita',
+    users: 'Personal & Usuarios',
+    invitados: 'Visitas e Invitados',
+    historial: 'Bitácora de Accesos',
+    noticias: 'Cartelera Informativa',
+    settings: 'Ajustes del Sistema',
+  };
 
   useEffect(() => {
     // 1. Verificar si hay usuario con sesión activa en el cliente
@@ -29,7 +41,7 @@ export const App: React.FC = () => {
     if (savedUser) {
       setUser(savedUser);
       if (savedUser.rol === 'ADMINISTRADOR' || savedUser.rol === 'SEGURIDAD') {
-        setActiveTab('garita');
+        setActiveTab('dashboard');
       } else {
         setActiveTab('invitados');
       }
@@ -59,16 +71,15 @@ export const App: React.FC = () => {
     if (newUser.rol === 'EMPLEADO') {
       setActiveTab('invitados');
     } else {
-      setActiveTab('garita');
+      setActiveTab('dashboard');
     }
-    // Cargar noticias y mostrar bienvenida
     api.getNoticias().then((items) => {
       setNoticias(items);
       setIsCarteleraWelcomeOpen(true);
     });
   };
 
-  // Pantalla de carga mientras se verifica el token JWT inicial
+  // Pantalla de carga mientras se verifica la sesión inicial
   if (isCheckingSession) {
     return (
       <div
@@ -79,7 +90,7 @@ export const App: React.FC = () => {
           minHeight: '100vh',
           background: 'var(--bg-dark)',
           color: 'var(--text-muted)',
-          fontFamily: 'var(--font-sans)',
+          fontFamily: 'var(--font-body)',
         }}
       >
         <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
@@ -90,34 +101,43 @@ export const App: React.FC = () => {
     );
   }
 
-  // SI NO HAY SESIÓN ACTIVA: Mostrar pantalla completa de inicio de sesión (no modal emergente)
+  // SI NO HAY SESIÓN ACTIVA: Mostrar pantalla completa de inicio de sesión
   if (!user) {
     return <LoginView onSuccess={handleLoginSuccess} />;
   }
 
-  // SESIÓN ACTIVA: Renderizar panel de control con navegación por secciones
+  // SESIÓN ACTIVA: Renderizar interfaz unificada estilo Fortinet
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', width: '100%', background: 'var(--bg-dark)' }}>
       {/* Alerta de conexión / Banner Offline */}
       <OfflineBanner />
 
-      {/* Navbar Superior */}
+      {/* Navbar Superior estilo Fortinet */}
       <Navbar
         user={user}
         onLogout={handleLogout}
         onOpenLogin={() => setUser(null)}
         onOpenSettings={() => setActiveTab('settings')}
+        activeTabLabel={tabLabels[activeTab]}
+        onQuickAction={() => setActiveTab('garita')}
+        onToggleMobileMenu={() => setIsMobileSidebarOpen((prev) => !prev)}
       />
 
       {/* Cuerpo Principal con Sidebar (Desktop) y Área de Trabajo */}
       <div style={{ display: 'flex', flex: 1, width: '100%', minWidth: 0 }}>
         <Sidebar
           activeTab={activeTab}
-          onSelectTab={setActiveTab}
+          onSelectTab={(tab) => {
+            setActiveTab(tab);
+            setIsMobileSidebarOpen(false);
+          }}
           userRole={user?.rol || 'ADMINISTRADOR'}
+          isOpenMobile={isMobileSidebarOpen}
+          onCloseMobile={() => setIsMobileSidebarOpen(false)}
         />
 
         <main className="app-main-content">
+          {activeTab === 'dashboard' && <DashboardView />}
           {activeTab === 'garita' && <GaritaView />}
           {activeTab === 'users' && <UsersView />}
           {activeTab === 'invitados' && <InvitadosView currentUser={user} />}
@@ -143,7 +163,7 @@ export const App: React.FC = () => {
         userRole={user?.rol || 'ADMINISTRADOR'}
       />
 
-      {/* Modal de Cartelera Informativa de Bienvenida (informativo, descartable) */}
+      {/* Modal de Cartelera Informativa de Bienvenida */}
       <CarteleraWelcomeModal
         isOpen={isCarteleraWelcomeOpen}
         onClose={() => setIsCarteleraWelcomeOpen(false)}

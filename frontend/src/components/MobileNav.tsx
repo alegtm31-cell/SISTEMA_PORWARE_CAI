@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {
+  LayoutDashboard,
   UserPlus,
   Terminal,
   Newspaper,
@@ -203,7 +204,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           background: 'var(--bg-navbar)',
           backdropFilter: 'blur(20px)',
           borderTop: '1px solid var(--border-subtle)',
-          padding: '8px 12px 14px 12px',
+          padding: '8px 12px calc(8px + env(safe-area-inset-bottom, 10px)) 12px',
           zIndex: 80,
           display: 'none',
           alignItems: 'center',
@@ -211,6 +212,28 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           boxShadow: '0 -4px 20px rgba(0, 0, 0, 0.15)',
         }}
       >
+        {/* Botón Dashboard */}
+        <button
+          type="button"
+          onClick={() => onSelectTab('dashboard')}
+          style={{
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            gap: '4px',
+            background: 'transparent',
+            border: 'none',
+            color: activeTab === 'dashboard' ? 'var(--primary)' : 'var(--text-muted)',
+            fontSize: '0.72rem',
+            fontWeight: activeTab === 'dashboard' ? 700 : 500,
+            cursor: 'pointer',
+            padding: '4px 8px',
+          }}
+        >
+          <LayoutDashboard size={20} />
+          <span>Dashboard</span>
+        </button>
+
         {isGuardOrAdmin && (
           <button
             type="button"
@@ -222,7 +245,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
               gap: '4px',
               background: 'transparent',
               border: 'none',
-              color: activeTab === 'garita' ? 'var(--cyan)' : 'var(--text-muted)',
+              color: activeTab === 'garita' ? 'var(--primary)' : 'var(--text-muted)',
               fontSize: '0.72rem',
               fontWeight: activeTab === 'garita' ? 700 : 500,
               cursor: 'pointer',
@@ -234,7 +257,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
           </button>
         )}
 
-        {/* Botón Principal: Anunciar Visitas */}
+        {/* Botón Principal: Anunciar Visitas (Propietarios) */}
         <button
           type="button"
           onClick={() => onSelectTab('invitados')}
@@ -245,7 +268,7 @@ export const MobileNav: React.FC<MobileNavProps> = ({
             gap: '4px',
             background: 'transparent',
             border: 'none',
-            color: activeTab === 'invitados' ? 'var(--amber)' : 'var(--text-muted)',
+            color: activeTab === 'invitados' ? 'var(--primary)' : 'var(--text-muted)',
             fontSize: '0.72rem',
             fontWeight: activeTab === 'invitados' ? 700 : 500,
             cursor: 'pointer',
