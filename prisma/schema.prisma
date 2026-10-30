@@ -26,6 +26,26 @@ enum EstadoVisita {
   CANCELADA
 }
 
+enum EstadoEvento {
+  BORRADOR
+  ACTIVO
+  CERRADO
+  CANCELADO
+}
+
+enum EstadoEventoInvitado {
+  PENDIENTE
+  APROBADO
+  RECHAZADO
+  REVOCADO
+}
+
+enum OrigenEventoInvitado {
+  ENLACE
+  ANFITRION
+  GARITA
+}
+
 model Usuario {
   id             String      @id @default(uuid())
   cedula         String      @unique
@@ -48,6 +68,7 @@ model Usuario {
 
   invitaciones       Invitado[]  @relation("EmpleadoInvitante")
   visitasAutorizadas Visita[]    @relation("VisitasAutorizadas")
+  eventosOrganizados Evento[]    @relation("AnfitrionEvento")
   registros          Historial[] @relation("UsuarioAcceso")
   registrosOperados  Historial[] @relation("OperadorRegistro")
   auditorias         Auditoria[] @relation("AuditoriaUsuario")
@@ -72,6 +93,7 @@ model Invitado {
 
   visitas       Visita[]
   historial     Historial[]
+  eventos       EventoInvitado[]
 }
 
 model Visita {
@@ -90,6 +112,47 @@ model Visita {
   updatedAt       DateTime     @updatedAt
 
   historial       Historial[]
+  eventoInvitados EventoInvitado[]
+}
+
+model Evento {
+  id                 String           @id @default(uuid())
+  nombre             String
+  descripcion        String?
+  anfitrionId        String
+  anfitrion          Usuario          @relation("AnfitrionEvento", fields: [anfitrionId], references: [id], onDelete: Cascade)
+  inicio             DateTime
+  fin                DateTime
+  aforo              Int
+  requiereAprobacion Boolean          @default(true)
+  estado             EstadoEvento     @default(ACTIVO)
+  codigoActivo       Boolean          @default(true)
+  nonceCodigo        String           @default(uuid())
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+
+  invitados          EventoInvitado[]
+
+  @@index([anfitrionId])
+  @@index([estado])
+  @@index([inicio, fin])
+}
+
+model EventoInvitado {
+  id         String               @id @default(uuid())
+  eventoId   String
+  evento     Evento               @relation(fields: [eventoId], references: [id], onDelete: Cascade)
+  invitadoId String
+  invitado   Invitado             @relation(fields: [invitadoId], references: [id], onDelete: Cascade)
+  estado     EstadoEventoInvitado @default(PENDIENTE)
+  origen     OrigenEventoInvitado @default(ENLACE)
+  visitaId   String?
+  visita     Visita?              @relation(fields: [visitaId], references: [id], onDelete: SetNull)
+  createdAt  DateTime             @default(now())
+
+  @@unique([eventoId, invitadoId])
+  @@index([eventoId])
+  @@index([estado])
 }
 
 model Historial {
