@@ -127,7 +127,17 @@ export const api = {
     if (!res.ok) {
       throw new Error('Servidor o base de datos no disponible');
     }
-    return res.json();
+    const raw = await res.json();
+    const dbObj = typeof raw.database === 'object' && raw.database !== null ? raw.database : null;
+    return {
+      status: raw.status,
+      database: dbObj ? (dbObj.status === 'up' ? 'conectado' : dbObj.status) : raw.database || 'conectado',
+      latencyMs:
+        dbObj && dbObj.latencyMs !== null && dbObj.latencyMs !== undefined
+          ? `${dbObj.latencyMs} ms`
+          : raw.latencyMs || '0 ms',
+      uptimeSeconds: raw.uptimeSeconds,
+    };
   },
 
   // Autenticación estricta contra el backend (LoginDto: { identifier, password })
