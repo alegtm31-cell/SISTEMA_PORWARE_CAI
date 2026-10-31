@@ -1,3 +1,5 @@
+@import './styles/motion.css';
+
 :root,
 [data-theme="dark"] {
   --primary: #2563eb;
