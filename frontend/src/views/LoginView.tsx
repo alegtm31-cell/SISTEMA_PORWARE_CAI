@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Shield, Lock, User, Mail, ArrowRight, AlertCircle, CheckCircle2, UserPlus, Wifi } from 'lucide-react';
+import { Shield, Lock, User, Mail, ArrowRight, AlertCircle, CheckCircle2, UserPlus, Wifi, RefreshCw } from 'lucide-react';
 import { api } from '../services/api';
 import type { Usuario } from '../types';
 
@@ -91,7 +91,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
       }}
     >
       <div
-        className="glass-panel animate-fade-in"
+        className="glass-panel login-panel-enter"
         style={{
           width: '100%',
           maxWidth: '420px',
@@ -133,7 +133,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
           </p>
         </div>
 
-        {/* Selector Iniciar Sesión / Registrar mi Correo */}
+        {/* Selector Iniciar Sesión / Registrar mi Correo con transición fluida */}
         <div
           style={{
             display: 'grid',
@@ -161,6 +161,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               fontWeight: 700,
               fontSize: '0.78rem',
               cursor: 'pointer',
+              transition: 'all var(--dur-fast) var(--ease-out)',
             }}
           >
             Iniciar Sesión
@@ -180,6 +181,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               fontWeight: 700,
               fontSize: '0.78rem',
               cursor: 'pointer',
+              transition: 'all var(--dur-fast) var(--ease-out)',
             }}
           >
             Registrar mi Correo
@@ -188,6 +190,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
 
         {error && (
           <div
+            className="form-error-shake"
             style={{
               background: 'rgba(244, 63, 94, 0.12)',
               border: '1px solid rgba(244, 63, 94, 0.3)',
@@ -207,7 +210,12 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         )}
 
         {mode === 'login' ? (
-          <form onSubmit={handleSubmitLogin} style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}>
+          <form
+            key="login-form"
+            onSubmit={handleSubmitLogin}
+            className={`login-tab-fade ${error ? 'form-error-shake' : ''}`}
+            style={{ display: 'flex', flexDirection: 'column', gap: '14px' }}
+          >
             <div>
               <label
                 style={{
@@ -276,12 +284,26 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               className="btn-primary"
               style={{ width: '100%', padding: '11px', marginTop: '4px', fontSize: '0.88rem' }}
             >
-              <span>{loading ? 'Verificando credenciales...' : 'Iniciar Sesión'}</span>
-              <ArrowRight size={16} />
+              {loading ? (
+                <>
+                  <RefreshCw size={16} className="spinner-rotate" />
+                  <span>Verificando credenciales...</span>
+                </>
+              ) : (
+                <>
+                  <span>Iniciar Sesión</span>
+                  <ArrowRight size={16} />
+                </>
+              )}
             </button>
           </form>
         ) : (
-          <form onSubmit={handleSubmitRegister} style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}>
+          <form
+            key="register-form"
+            onSubmit={handleSubmitRegister}
+            className={`login-tab-fade ${error ? 'form-error-shake' : ''}`}
+            style={{ display: 'flex', flexDirection: 'column', gap: '11px' }}
+          >
             <div>
               <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
                 Correo Electrónico *
@@ -391,8 +413,17 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               className="btn-primary"
               style={{ width: '100%', padding: '11px', marginTop: '4px', fontSize: '0.88rem' }}
             >
-              <UserPlus size={16} />
-              <span>{loading ? 'Registrando cuenta...' : 'Registrar Correo e Ingresar'}</span>
+              {loading ? (
+                <>
+                  <RefreshCw size={16} className="spinner-rotate" />
+                  <span>Registrando cuenta...</span>
+                </>
+              ) : (
+                <>
+                  <UserPlus size={16} />
+                  <span>Registrar Correo e Ingresar</span>
+                </>
+              )}
             </button>
           </form>
         )}
