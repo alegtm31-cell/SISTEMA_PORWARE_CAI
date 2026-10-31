@@ -43,9 +43,10 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const isSeguridad = user?.rol === 'SEGURIDAD';
   const isAdmin = user?.rol === 'ADMINISTRADOR';
 
+  const isNative = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.());
+  const defaultBaseApi = isNative ? 'http://192.168.10.12:3000/api/v1' : ((import.meta as any).env?.VITE_API_URL || '/api/v1');
   const currentSavedApi =
-    localStorage.getItem('cai_custom_api_url') ||
-    ((import.meta as any).env?.VITE_API_URL || '/api/v1');
+    localStorage.getItem('cai_custom_api_url') || defaultBaseApi;
   const [apiUrl, setApiUrl] = useState(currentSavedApi);
   const [savedSuccess, setSavedSuccess] = useState(false);
 
@@ -88,7 +89,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
   const handleResetApi = () => {
     localStorage.removeItem('cai_custom_api_url');
-    setApiUrl((import.meta as any).env?.VITE_API_URL || '/api/v1');
+    setApiUrl(defaultBaseApi);
     setSavedSuccess(true);
     setTimeout(() => {
       setSavedSuccess(false);

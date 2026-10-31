@@ -26,13 +26,19 @@ const getBaseApiUrl = () => {
     const clean = custom.trim().replace(/\/$/, '');
     return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
   }
+  const isCapacitor = typeof window !== 'undefined' && Boolean((window as any).Capacitor?.isNativePlatform?.());
+  if (isCapacitor) {
+    const envUrl = import.meta.env.VITE_API_URL;
+    if (envUrl && !envUrl.includes('localhost') && !envUrl.includes('127.0.0.1')) {
+      const clean = envUrl.trim().replace(/\/$/, '');
+      return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
+    }
+    return 'http://192.168.10.12:3000/api/v1';
+  }
   const envUrl = import.meta.env.VITE_API_URL;
   if (envUrl && envUrl.trim()) {
     const clean = envUrl.trim().replace(/\/$/, '');
     return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
-  }
-  if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
-    return 'http://192.168.10.12:3000/api/v1';
   }
   return '/api/v1';
 };
