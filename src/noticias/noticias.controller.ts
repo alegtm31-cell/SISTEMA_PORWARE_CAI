@@ -22,7 +22,7 @@ import { CurrentUser } from '../auth/current-user.decorator';
 @Controller('api/v1/noticias')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class NoticiasController {
-  constructor(private readonly noticiasService: NoticiasService) {}
+  constructor(private readonly noticiasService: NoticiasService) { }
 
   @Get()
   @Roles('ADMINISTRADOR', 'EMPLEADO')

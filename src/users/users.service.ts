@@ -11,7 +11,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly auditoriaService: AuditoriaService,
-  ) {}
+  ) { }
 
 
   async findAll(params?: { search?: string; rol?: Role; skip?: number; take?: number }) {

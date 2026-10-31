@@ -348,8 +348,8 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           </div>
         </section>
 
-        {/* SECCIÓN 2: CONECTIVIDAD Y RED (Solo ADMINISTRADOR) */}
-        {isAdmin && (
+        {/* SECCIÓN 2: CONECTIVIDAD Y RED (Administrador o Cliente Móvil) */}
+        {(isAdmin || (typeof window !== 'undefined' && ((window as any).Capacitor?.isNativePlatform?.() || window.innerWidth < 768))) && (
           <section
             className="glass-panel"
             style={{
@@ -362,21 +362,33 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px', marginBottom: '14px' }}>
               <Wifi size={20} color="var(--cyan)" />
               <h2 style={{ fontSize: '1.1rem', fontWeight: 700, margin: 0, color: 'var(--text-main)' }}>
-                Servidor API y Red Local (Solo Administrador)
+                Servidor API y Red Local
               </h2>
             </div>
-            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '18px' }}>
-              Configure la dirección HTTPS del servidor backend de CAI para terminales de intranet.
+            <p style={{ fontSize: '0.84rem', color: 'var(--text-muted)', marginBottom: '14px' }}>
+              Configure la dirección del servidor backend de CAI para conectar el teléfono con la computadora por Wi-Fi.
             </p>
+
+            <div style={{ display: 'flex', gap: '8px', marginBottom: '12px', flexWrap: 'wrap' }}>
+              <span style={{ fontSize: '0.78rem', color: 'var(--text-dim)', alignSelf: 'center' }}>Sugerido Wi-Fi:</span>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => setApiUrl('http://192.168.10.12:3000')}
+                style={{ padding: '4px 10px', fontSize: '0.75rem', color: 'var(--accent-cyan)', borderColor: 'rgba(14, 165, 233, 0.3)' }}
+              >
+                192.168.10.12:3000 (PC Local)
+              </button>
+            </div>
 
             <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', alignItems: 'center' }}>
               <input
                 type="text"
                 value={apiUrl}
                 onChange={(e) => setApiUrl(e.target.value)}
-                placeholder="https://cai.empresa.local"
+                placeholder="http://192.168.10.12:3000"
                 className="input-field"
-                style={{ flex: 1, minWidth: '260px', padding: '10px 14px', fontSize: '0.88rem' }}
+                style={{ flex: 1, minWidth: '240px', padding: '10px 14px', fontSize: '0.88rem' }}
               />
               <button
                 type="button"

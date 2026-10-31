@@ -1,6 +1,6 @@
 import 'reflect-metadata';
 import * as assert from 'assert';
-import { ForbiddenException, BadRequestException, ExecutionContext } from '@nestjs/common';
+import { ForbiddenException, BadRequestException, ConflictException, ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AccessService } from '../src/access/access.service';
 import { AccessController } from '../src/access/access.controller';
@@ -640,6 +640,67 @@ async function runTests() {
       newPassword: 'NuevaClaveSegura2026!',
     });
     assert.strictEqual(changeRes.user.debeCambiarClave, false);
+  });
+
+  await test('AuthService: registerAccount siempre asigna rol EMPLEADO y rechaza duplicados con ConflictException (409)', async () => {
+    let createdUserRecord: any = null;
+    const mockPrismaRegister: any = {
+      usuario: {
+        findFirst: async ({ where }: any) => {
+          if (where.cedula?.equals === 'V-88888888' || where.email?.equals === 'nuevo@empresa.com') {
+            return null;
+          }
+          if (where.cedula?.equals === 'V-10000001' || where.email?.equals === 'admin@porware.com') {
+            return { id: 'admin-1', cedula: 'V-10000001', email: 'admin@porware.com', rol: 'ADMINISTRADOR' };
+          }
+          return null;
+        },
+        create: async ({ data }: any) => {
+          createdUserRecord = { id: 'new-emp-1', ...data };
+          return createdUserRecord;
+        },
+      },
+    };
+    const regService = new AuthService(mockPrismaRegister, mockJwtService, mockAuditoriaService);
+
+    const regResult = await regService.registerAccount({
+      cedula: 'V-88888888',
+      nombre: 'Carlos',
+      apellido: 'Perez',
+      email: 'nuevo@empresa.com',
+      password: 'MiPassword123!',
+    });
+
+    assert.strictEqual(regResult.user.rol, 'EMPLEADO', 'Debe asignar estrictamente rol EMPLEADO');
+    assert.strictEqual(regResult.user.registroCompletado, true);
+
+    // Intento de usurpación de cuenta con cédula existente -> 409
+    await assert.rejects(
+      async () => {
+        await regService.registerAccount({
+          cedula: 'V-10000001',
+          nombre: 'Atacante',
+          apellido: 'Hacker',
+          email: 'otro@correo.com',
+          password: 'Password123!',
+        });
+      },
+      (err: any) => err instanceof ConflictException && err.message.includes('cédula de identidad ya se encuentra registrada'),
+    );
+
+    // Intento con correo existente -> 409
+    await assert.rejects(
+      async () => {
+        await regService.registerAccount({
+          cedula: 'V-99999999',
+          nombre: 'Atacante',
+          apellido: 'Hacker',
+          email: 'admin@porware.com',
+          password: 'Password123!',
+        });
+      },
+      (err: any) => err instanceof ConflictException && err.message.includes('correo electrónico ya se encuentra registrado'),
+    );
   });
 
   // =========================================================================

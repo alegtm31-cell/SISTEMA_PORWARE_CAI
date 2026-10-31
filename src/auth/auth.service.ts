@@ -1,4 +1,4 @@
-import { Injectable, UnauthorizedException, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
@@ -105,79 +105,53 @@ export class AuthService {
   async registerAccount(dto: RegisterAccountDto, ip?: string, userAgent?: string) {
     const cleanCedula = dto.cedula.trim().toUpperCase();
     const cleanEmail = dto.email.trim().toLowerCase();
-    const hashedPassword = await bcrypt.hash(dto.password, 10);
-    const targetRol = dto.rol || 'ADMINISTRADOR';
 
+    // Verificación preventiva contra usurpación de cuenta
     const existingByCedula = await this.prisma.usuario.findFirst({
       where: { cedula: { equals: cleanCedula, mode: 'insensitive' } },
     });
+    if (existingByCedula) {
+      throw new ConflictException('La cédula de identidad ya se encuentra registrada en el sistema.');
+    }
 
     const existingByEmail = await this.prisma.usuario.findFirst({
       where: { email: { equals: cleanEmail, mode: 'insensitive' } },
     });
-
-    if (existingByEmail && (!existingByCedula || existingByEmail.id !== existingByCedula.id)) {
-      throw new BadRequestException('Este correo electrónico ya está registrado en otra cuenta.');
+    if (existingByEmail) {
+      throw new ConflictException('El correo electrónico ya se encuentra registrado en el sistema.');
     }
 
-    let savedUser;
-    if (existingByCedula) {
-      savedUser = await this.prisma.usuario.update({
-        where: { id: existingByCedula.id },
-        data: {
-          nombre: dto.nombre.trim(),
-          apellido: dto.apellido.trim(),
-          email: cleanEmail,
-          password: hashedPassword,
-          rol: targetRol,
-          registroCompletado: true,
-          debeCambiarClave: false,
-        },
-        select: {
-          id: true,
-          cedula: true,
-          nombre: true,
-          apellido: true,
-          email: true,
-          rol: true,
-          cargo: true,
-          departamento: true,
-          telefonoMovil: true,
-          telefonoFijo: true,
-          fotoUrl: true,
-          registroCompletado: true,
-          debeCambiarClave: true,
-        },
-      });
-    } else {
-      savedUser = await this.prisma.usuario.create({
-        data: {
-          cedula: cleanCedula,
-          nombre: dto.nombre.trim(),
-          apellido: dto.apellido.trim(),
-          email: cleanEmail,
-          password: hashedPassword,
-          rol: targetRol,
-          registroCompletado: true,
-          debeCambiarClave: false,
-        },
-        select: {
-          id: true,
-          cedula: true,
-          nombre: true,
-          apellido: true,
-          email: true,
-          rol: true,
-          cargo: true,
-          departamento: true,
-          telefonoMovil: true,
-          telefonoFijo: true,
-          fotoUrl: true,
-          registroCompletado: true,
-          debeCambiarClave: true,
-        },
-      });
-    }
+    const hashedPassword = await bcrypt.hash(dto.password, 10);
+
+    // Registro público siempre crea cuentas con rol EMPLEADO (Propietario/Residente/Personal).
+    // Las cuentas ADMINISTRADOR y SEGURIDAD son aprovisionadas exclusivamente por un Administrador autenticado.
+    const savedUser = await this.prisma.usuario.create({
+      data: {
+        cedula: cleanCedula,
+        nombre: dto.nombre.trim(),
+        apellido: dto.apellido.trim(),
+        email: cleanEmail,
+        password: hashedPassword,
+        rol: 'EMPLEADO',
+        registroCompletado: true,
+        debeCambiarClave: false,
+      },
+      select: {
+        id: true,
+        cedula: true,
+        nombre: true,
+        apellido: true,
+        email: true,
+        rol: true,
+        cargo: true,
+        departamento: true,
+        telefonoMovil: true,
+        telefonoFijo: true,
+        fotoUrl: true,
+        registroCompletado: true,
+        debeCambiarClave: true,
+      },
+    });
 
     const payload: JwtPayload = {
       sub: savedUser.id,

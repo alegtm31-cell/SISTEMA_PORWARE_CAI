@@ -89,7 +89,7 @@ export const Navbar: React.FC<NavbarProps> = ({ activeTab, themeMode, onToggleTh
         alignItems: 'center',
         justifyContent: 'space-between',
         gap: '10px',
-        padding: '8px 14px',
+        padding: 'calc(8px + env(safe-area-inset-top, 0px)) 14px 8px 14px',
         position: 'sticky',
         top: 0,
         zIndex: 40,

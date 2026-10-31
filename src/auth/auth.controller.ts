@@ -35,12 +35,14 @@ export class AuthController {
   }
 
   @Public()
+  @Throttle({ default: { limit: 5, ttl: 60000 } }) // Mitigación contra fuerza bruta y registro masivo
   @Post('register')
   @ApiOperation({
     summary: 'Registrar cuenta con correo electrónico',
-    description: 'Registra una nueva cuenta con correo electrónico, cédula y rol, devolviendo sesión JWT activa.',
+    description: 'Registra una nueva cuenta de usuario con rol EMPLEADO, devolviendo sesión JWT activa.',
   })
   @ApiResponse({ status: 201, description: 'Cuenta registrada e inicio de sesión exitoso.' })
+  @ApiResponse({ status: 409, description: 'Cédula o correo electrónico ya registrados.' })
   async registerAccount(@Body() dto: RegisterAccountDto, @Req() req: Request) {
     const clientIp = (req.headers['x-forwarded-for'] as string) || req.ip || req.socket.remoteAddress;
     const userAgent = req.headers['user-agent'] as string;

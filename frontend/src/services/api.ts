@@ -32,7 +32,7 @@ const getBaseApiUrl = () => {
     return clean.endsWith('/api/v1') ? clean : `${clean}/api/v1`;
   }
   if (typeof window !== 'undefined' && (window as any).Capacitor?.isNativePlatform?.()) {
-    return 'http://localhost:3000/api/v1';
+    return 'http://192.168.10.12:3000/api/v1';
   }
   return '/api/v1';
 };

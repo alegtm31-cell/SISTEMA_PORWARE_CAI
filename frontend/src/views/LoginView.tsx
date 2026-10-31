@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Shield, Lock, User, Mail, ArrowRight, AlertCircle, CheckCircle2, UserPlus, Wifi } from 'lucide-react';
 import { api } from '../services/api';
-import type { Usuario, Role } from '../types';
+import type { Usuario } from '../types';
 
 interface LoginViewProps {
   onLoginSuccess: (user: Usuario) => void;
@@ -20,12 +20,11 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
   const [regNombre, setRegNombre] = useState('');
   const [regApellido, setRegApellido] = useState('');
   const [regPassword, setRegPassword] = useState('');
-  const [regRol, setRegRol] = useState<Role>('ADMINISTRADOR');
 
   // Configuración opcional de servidor desde el login móvil
   const [showServerCfg, setShowServerCfg] = useState(false);
   const [serverUrl, setServerUrl] = useState(
-    () => localStorage.getItem('cai_custom_api_url') || 'http://localhost:3000',
+    () => localStorage.getItem('cai_custom_api_url') || 'http://192.168.10.12:3000',
   );
 
   const [loading, setLoading] = useState(false);
@@ -60,7 +59,6 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
         nombre: regNombre.trim(),
         apellido: regApellido.trim(),
         password: regPassword,
-        rol: regRol,
       });
       onLoginSuccess(res.user);
     } catch (err: any) {
@@ -347,18 +345,29 @@ export const LoginView: React.FC<LoginViewProps> = ({ onLoginSuccess }) => {
               </div>
               <div>
                 <label style={{ display: 'block', fontSize: '0.74rem', fontWeight: 600, color: 'var(--text-muted)', marginBottom: '4px' }}>
-                  Rol Inicial *
+                  Tipo de Perfil
                 </label>
-                <select
+                <div
                   className="form-input"
-                  value={regRol}
-                  onChange={(e) => setRegRol(e.target.value as Role)}
+                  style={{
+                    background: 'rgba(14, 165, 233, 0.08)',
+                    borderColor: 'rgba(14, 165, 233, 0.3)',
+                    color: 'var(--accent-cyan)',
+                    fontWeight: 600,
+                    fontSize: '0.8rem',
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '6px',
+                  }}
                 >
-                  <option value="ADMINISTRADOR">Administrador</option>
-                  <option value="SEGURIDAD">Seguridad</option>
-                  <option value="EMPLEADO">Propietario</option>
-                </select>
+                  <Shield size={14} />
+                  <span>Propietario / Residente</span>
+                </div>
               </div>
+            </div>
+
+            <div style={{ fontSize: '0.72rem', color: 'var(--text-dim)', background: 'var(--bg-input)', padding: '6px 10px', borderRadius: '6px', border: '1px solid var(--border-subtle)' }}>
+              ℹ️ Los perfiles con privilegios de Garita o Administración son gestionados exclusivamente por la Administración.
             </div>
 
             <div>
