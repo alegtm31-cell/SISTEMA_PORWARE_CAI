@@ -5,7 +5,8 @@ const config: CapacitorConfig = {
   appName: 'Porware CAI',
   webDir: 'dist',
   server: {
-    androidScheme: 'https',
+    androidScheme: 'http',
+    cleartext: true,
   },
 };
 
