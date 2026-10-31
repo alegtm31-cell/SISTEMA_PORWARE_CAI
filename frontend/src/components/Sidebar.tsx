@@ -175,6 +175,7 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user, 
               <button
                 key={item.id}
                 onClick={() => onSelectTab(item.id)}
+                className={`sidebar-nav-btn ${isActive ? 'active' : ''}`}
                 style={{
                   display: 'flex',
                   alignItems: 'center',
@@ -188,7 +189,6 @@ export const Sidebar: React.FC<SidebarProps> = ({ activeTab, onSelectTab, user, 
                   fontWeight: isActive ? 600 : 500,
                   fontSize: '0.82rem',
                   cursor: 'pointer',
-                  transition: 'all 0.15s ease',
                   textAlign: 'left',
                   width: '100%',
                 }}

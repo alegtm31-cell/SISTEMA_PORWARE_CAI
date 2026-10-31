@@ -14,10 +14,11 @@ import { NoticiasView } from './views/NoticiasView';
 import { SettingsView } from './views/SettingsView';
 import { LoginView } from './views/LoginView';
 import { CarteleraWelcomeModal } from './components/CarteleraWelcomeModal';
+import { PageTransition } from './components/PageTransition';
 import { api } from './services/api';
 import { useTheme } from './hooks/useTheme';
 import type { Usuario, Noticia } from './types';
-import { Lock, ShieldAlert, CheckCircle2, AlertCircle, LogOut } from 'lucide-react';
+import { Lock, ShieldAlert, CheckCircle2, AlertCircle, LogOut, RefreshCw } from 'lucide-react';
 
 export function App() {
   const [user, setUser] = useState<Usuario | null>(() => {
@@ -182,7 +183,7 @@ export function App() {
         }}
       >
         <div
-          className="glass-panel animate-fade-in"
+          className="glass-panel login-panel-enter"
           style={{
             width: '100%',
             maxWidth: '460px',
@@ -216,6 +217,7 @@ export function App() {
 
           {pwdError && (
             <div
+              className="banner-slide-down form-error-shake"
               style={{
                 background: 'rgba(239, 68, 68, 0.12)',
                 border: '1px solid rgba(239, 68, 68, 0.35)',
@@ -297,8 +299,17 @@ export function App() {
               className="btn-primary"
               style={{ width: '100%', padding: '12px', marginTop: '4px', fontSize: '0.92rem' }}
             >
-              <CheckCircle2 size={18} />
-              <span>{pwdLoading ? 'Actualizando contraseña...' : 'Guardar Nueva Contraseña y Continuar'}</span>
+              {pwdLoading ? (
+                <>
+                  <RefreshCw size={18} className="spinner-rotate" />
+                  <span>Actualizando contraseña...</span>
+                </>
+              ) : (
+                <>
+                  <CheckCircle2 size={18} />
+                  <span>Guardar Nueva Contraseña y Continuar</span>
+                </>
+              )}
             </button>
 
             <button
@@ -372,7 +383,11 @@ export function App() {
           onLogout={handleLogout}
         />
 
-        <main className="main-scroll-area">{renderPermittedView()}</main>
+        <main className="main-scroll-area">
+          <PageTransition viewKey={effectiveTab}>
+            {renderPermittedView()}
+          </PageTransition>
+        </main>
       </div>
 
       <MobileNav activeTab={effectiveTab} onSelectTab={handleSelectTab} userRole={user.rol} />
