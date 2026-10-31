@@ -18,6 +18,7 @@ import {
 } from 'lucide-react';
 import { api } from '../services/api';
 import { generateLocalQrDataUrl } from '../utils/qrPass';
+import { Skeleton } from '../components/Skeleton';
 import type { Invitado, Usuario } from '../types';
 
 interface InvitadosViewProps {
@@ -286,18 +287,25 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
         </div>
       </div>
 
-      {/* Grid de Tarjetas de Invitados */}
+      {/* Grid de Tarjetas de Invitados con entrada escalonada */}
       <div className="cards-auto-grid">
         {loading ? (
-          <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
-            Cargando listado de visitantes...
-          </div>
+          Array.from({ length: 3 }).map((_, idx) => (
+            <div key={`skel-inv-${idx}`} className="glass-panel" style={{ padding: '22px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '14px' }}>
+                <Skeleton width="80px" height="1.4rem" />
+                <Skeleton width="90px" height="1.4rem" />
+              </div>
+              <Skeleton width="70%" height="1.8rem" style={{ marginBottom: '10px' }} />
+              <Skeleton width="50%" height="1.2rem" />
+            </div>
+          ))
         ) : invitados.length === 0 ? (
           <div style={{ gridColumn: '1 / -1', padding: '50px', textAlign: 'center', color: 'var(--text-dim)' }} className="glass-panel">
             No tiene visitantes registrados que coincidan con la búsqueda.
           </div>
         ) : (
-          invitados.map((inv) => (
+          invitados.map((inv, idx) => (
             <div
               key={inv.id}
               className="glass-panel"
@@ -307,6 +315,8 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
                 flexDirection: 'column',
                 justifyContent: 'space-between',
                 border: inv.bloqueado ? '1px solid rgba(244, 63, 94, 0.45)' : undefined,
+                animation: 'cardStaggerAnim var(--dur-base) var(--ease-out) both',
+                animationDelay: `${Math.min(idx * 35, 250)}ms`,
               }}
             >
               <div>
@@ -454,6 +464,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
       {/* Modal de Pase Digital QR Firmado en Backend */}
       {activePass && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -467,7 +478,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
           }}
         >
           <div
-            className="glass-panel animate-fade-in"
+            className="glass-panel modal-content-anim"
             style={{
               width: '100%',
               maxWidth: '420px',
@@ -569,6 +580,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
       {/* Modal Nuevo / Editar Invitado */}
       {isModalOpen && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -584,7 +596,7 @@ export const InvitadosView: React.FC<InvitadosViewProps> = ({ user }) => {
           onClick={() => setIsModalOpen(false)}
         >
           <div
-            className="glass-panel animate-fade-in"
+            className="glass-panel modal-content-anim"
             style={{
               width: '100%',
               maxWidth: '480px',

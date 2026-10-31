@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Search, X, Check, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import { Skeleton } from '../components/Skeleton';
 import type { Usuario, Role } from '../types';
 
 export const UsersView: React.FC = () => {
@@ -141,11 +142,13 @@ export const UsersView: React.FC = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-dim)' }}>
-                  Cargando usuarios...
-                </td>
-              </tr>
+              Array.from({ length: 4 }).map((_, idx) => (
+                <tr key={`skel-user-${idx}`}>
+                  <td colSpan={5} style={{ padding: '16px 20px' }}>
+                    <Skeleton height="1.4rem" borderRadius="6px" />
+                  </td>
+                </tr>
+              ))
             ) : users.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
@@ -223,6 +226,7 @@ export const UsersView: React.FC = () => {
       {/* Modal Nuevo Usuario */}
       {isModalOpen && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -238,7 +242,7 @@ export const UsersView: React.FC = () => {
           onClick={() => setIsModalOpen(false)}
         >
           <div
-            className="glass-panel animate-fade-in"
+            className="glass-panel modal-content-anim"
             style={{
               width: '100%',
               maxWidth: '480px',

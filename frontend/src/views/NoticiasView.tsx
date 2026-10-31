@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Plus, Calendar, Bell, X, Check, Edit3, Trash2, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import { Skeleton } from '../components/Skeleton';
 import type { Noticia, Role } from '../types';
 
 interface NoticiasViewProps {
@@ -134,15 +135,22 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
 
       <div className="cards-auto-grid">
         {loading ? (
-          <div style={{ gridColumn: '1 / -1', padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>
-            Cargando comunicados...
-          </div>
+          Array.from({ length: 3 }).map((_, idx) => (
+            <div key={`skel-noticia-${idx}`} className="glass-panel" style={{ padding: '24px' }}>
+              <div style={{ display: 'flex', gap: '8px', marginBottom: '14px' }}>
+                <Skeleton width="36px" height="36px" borderRadius="10px" />
+                <Skeleton width="120px" height="1.4rem" />
+              </div>
+              <Skeleton width="85%" height="1.8rem" style={{ marginBottom: '12px' }} />
+              <Skeleton width="100%" height="3.5rem" />
+            </div>
+          ))
         ) : noticias.length === 0 ? (
           <div style={{ gridColumn: '1 / -1', padding: '50px', textAlign: 'center', color: 'var(--text-dim)' }} className="glass-panel">
             No hay publicaciones en la cartelera por el momento.
           </div>
         ) : (
-          noticias.map((n) => (
+          noticias.map((n, idx) => (
             <div
               key={n.id}
               className="glass-panel"
@@ -151,6 +159,8 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
                 display: 'flex',
                 flexDirection: 'column',
                 justifyContent: 'space-between',
+                animation: 'cardStaggerAnim var(--dur-base) var(--ease-out) both',
+                animationDelay: `${Math.min(idx * 40, 280)}ms`,
               }}
             >
               <div>
@@ -232,6 +242,7 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
       {/* Modal Crear / Editar Noticia (Solo ADMINISTRADOR) */}
       {isAdmin && isModalOpen && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -247,7 +258,7 @@ export const NoticiasView: React.FC<NoticiasViewProps> = ({ userRole }) => {
           onClick={() => setIsModalOpen(false)}
         >
           <div
-            className="glass-panel animate-fade-in"
+            className="glass-panel modal-content-anim"
             style={{
               width: '100%',
               maxWidth: '480px',

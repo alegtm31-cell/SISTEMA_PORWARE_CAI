@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Search, Download, LogIn, LogOut, AlertCircle } from 'lucide-react';
 import { api } from '../services/api';
+import { Skeleton } from '../components/Skeleton';
 import type { HistorialRegistro } from '../types';
 
 export const HistorialView: React.FC = () => {
@@ -131,11 +132,13 @@ export const HistorialView: React.FC = () => {
           </thead>
           <tbody>
             {loading ? (
-              <tr>
-                <td colSpan={5} style={{ padding: '30px', textAlign: 'center', color: 'var(--text-dim)' }}>
-                  Consultando registros de auditoría...
-                </td>
-              </tr>
+              Array.from({ length: 5 }).map((_, idx) => (
+                <tr key={`skel-hist-${idx}`}>
+                  <td colSpan={5} style={{ padding: '16px 20px' }}>
+                    <Skeleton height="1.4rem" borderRadius="6px" />
+                  </td>
+                </tr>
+              ))
             ) : registros.length === 0 ? (
               <tr>
                 <td colSpan={5} style={{ padding: '40px', textAlign: 'center', color: 'var(--text-dim)' }}>

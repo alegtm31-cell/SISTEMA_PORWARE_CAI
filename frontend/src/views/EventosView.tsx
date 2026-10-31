@@ -669,6 +669,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
       {/* Modal Crear / Editar Evento */}
       {showFormModal && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -680,7 +681,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
             padding: '16px',
           }}
         >
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '480px', padding: '26px' }}>
+          <div className="glass-panel modal-content-anim" style={{ width: '100%', maxWidth: '480px', padding: '26px' }}>
             <h3 style={{ fontSize: '1.15rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '16px' }}>
               {editingEventoId ? 'Editar Evento' : 'Crear Nuevo Evento'}
             </h3>
@@ -783,6 +784,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
       {/* Modal Agregar Invitado Manualmente */}
       {showAddGuestModal && selectedEvento && (
         <div
+          className="modal-backdrop-anim"
           style={{
             position: 'fixed',
             inset: 0,
@@ -794,7 +796,7 @@ export const EventosView: React.FC<EventosViewProps> = ({ user }) => {
             padding: '16px',
           }}
         >
-          <div className="glass-panel" style={{ width: '100%', maxWidth: '440px', padding: '26px' }}>
+          <div className="glass-panel modal-content-anim" style={{ width: '100%', maxWidth: '440px', padding: '26px' }}>
             <h3 style={{ fontSize: '1.1rem', fontWeight: 800, color: 'var(--text-main)', marginBottom: '14px' }}>
               Agregar Invitado a "{selectedEvento.nombre}"
             </h3>

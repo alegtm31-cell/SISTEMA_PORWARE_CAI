@@ -474,6 +474,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
 
             {profileMsg && (
               <div
+                className="banner-slide-down"
                 style={{
                   padding: '12px 14px',
                   borderRadius: '10px',

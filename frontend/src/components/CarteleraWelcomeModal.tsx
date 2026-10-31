@@ -33,6 +33,7 @@ export const CarteleraWelcomeModal: React.FC<CarteleraWelcomeModalProps> = ({
 
   return (
     <div
+      className="modal-backdrop-anim"
       style={{
         position: 'fixed',
         inset: 0,
@@ -47,7 +48,7 @@ export const CarteleraWelcomeModal: React.FC<CarteleraWelcomeModalProps> = ({
       onClick={handleClose}
     >
       <div
-        className="glass-panel animate-fade-in"
+        className="glass-panel modal-content-anim"
         style={{
           width: '100%',
           maxWidth: '520px',
