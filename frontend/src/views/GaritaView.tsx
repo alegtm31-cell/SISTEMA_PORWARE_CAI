@@ -26,6 +26,7 @@ import { Html5Qrcode } from 'html5-qrcode';
 import { api } from '../services/api';
 import { offlineQueue, type OfflineMovementItem } from '../services/offlineQueue';
 import { isSignedQrString } from '../utils/qrPass';
+import { Skeleton } from '../components/Skeleton';
 import type { PersonaLookup, TipoAcceso, Usuario, EventoGaritaHoy } from '../types';
 
 interface GaritaViewProps {
@@ -460,7 +461,9 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
         >
           <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '12px', marginBottom: '12px' }}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
-              <CloudOff size={20} color={rejectedCount > 0 ? 'var(--rose)' : 'var(--amber)'} />
+              <div className={pendingCount > 0 ? 'offline-pulse' : ''} style={{ display: 'flex', alignItems: 'center' }}>
+                <CloudOff size={20} color={rejectedCount > 0 ? 'var(--rose)' : 'var(--amber)'} />
+              </div>
               <div>
                 <div style={{ fontWeight: 800, fontSize: '0.92rem', color: 'var(--text-main)' }}>
                   COLA OFFLINE DE GARITA — {pendingCount} PENDIENTE(S) DE SINCRONIZAR
@@ -479,7 +482,7 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
               className="btn-primary"
               style={{ padding: '8px 14px', fontSize: '0.8rem' }}
             >
-              <RefreshCw size={15} />
+              <RefreshCw size={15} className={syncingOffline ? 'spinner-rotate' : ''} />
               <span>{syncingOffline ? 'Sincronizando...' : 'Sincronizar Ahora'}</span>
             </button>
           </div>
@@ -562,10 +565,17 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
         </div>
       )}
 
-      {/* Mensajes de Alerta / Confirmación */}
+      {/* Mensajes de Alerta / Confirmación con feedback háptico-visual de escaneo */}
       {feedback && (
         <div
-          className="animate-fade-in"
+          key={`${feedback.type}-${feedback.msg.slice(0, 15)}`}
+          className={
+            feedback.type === 'error'
+              ? 'scan-shake'
+              : feedback.msg.includes('SALIDA')
+                ? 'scan-flash-exit'
+                : 'scan-flash-success'
+          }
           style={{
             padding: '16px 20px',
             borderRadius: '12px',
@@ -575,26 +585,38 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
             gap: '12px',
             background:
               feedback.type === 'success'
-                ? 'rgba(16, 185, 129, 0.14)'
+                ? feedback.msg.includes('SALIDA')
+                  ? 'rgba(245, 158, 11, 0.15)'
+                  : 'rgba(16, 185, 129, 0.15)'
                 : feedback.type === 'warning'
                   ? 'rgba(245, 158, 11, 0.15)'
-                  : 'rgba(244, 63, 94, 0.14)',
+                  : 'rgba(244, 63, 94, 0.18)',
             border:
               feedback.type === 'success'
-                ? '1px solid rgba(16, 185, 129, 0.35)'
+                ? feedback.msg.includes('SALIDA')
+                  ? '1px solid rgba(245, 158, 11, 0.45)'
+                  : '1px solid rgba(16, 185, 129, 0.45)'
                 : feedback.type === 'warning'
                   ? '1px solid rgba(245, 158, 11, 0.4)'
-                  : '1px solid rgba(244, 63, 94, 0.35)',
+                  : '2px solid rgba(244, 63, 94, 0.7)',
             color:
               feedback.type === 'success'
-                ? '#34d399'
+                ? feedback.msg.includes('SALIDA')
+                  ? '#fbbf24'
+                  : '#34d399'
                 : feedback.type === 'warning'
                   ? '#fbbf24'
                   : '#fb7185',
             fontWeight: 600,
           }}
         >
-          {feedback.type === 'success' ? <CheckCircle2 size={22} /> : <AlertCircle size={22} />}
+          {feedback.type === 'success' ? (
+            <div className="pop-icon-success" style={{ display: 'flex', alignItems: 'center' }}>
+              <CheckCircle2 size={22} />
+            </div>
+          ) : (
+            <AlertCircle size={22} style={{ flexShrink: 0 }} />
+          )}
           <span>{feedback.msg}</span>
         </div>
       )}
@@ -699,10 +721,10 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
             </div>
           </form>
 
-          {/* Ficha de Persona Verificada */}
+          {/* Ficha de Persona Verificada con entrada suave */}
           {persona && (
             <div
-              className="animate-fade-in"
+              className="person-card-enter"
               style={{
                 marginTop: '24px',
                 paddingTop: '20px',
@@ -968,11 +990,13 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
               </thead>
               <tbody>
                 {loadingDentro ? (
-                  <tr>
-                    <td colSpan={5} style={{ textAlign: 'center', padding: '30px', color: 'var(--text-dim)' }}>
-                      Cargando lista de personas en planta...
-                    </td>
-                  </tr>
+                  Array.from({ length: 4 }).map((_, idx) => (
+                    <tr key={`skel-dentro-${idx}`}>
+                      <td colSpan={5} style={{ padding: '14px 16px' }}>
+                        <Skeleton height="1.4rem" borderRadius="6px" />
+                      </td>
+                    </tr>
+                  ))
                 ) : filteredPersonasDentro.length === 0 ? (
                   <tr>
                     <td colSpan={5} style={{ textAlign: 'center', padding: '36px', color: 'var(--text-dim)' }}>
@@ -981,7 +1005,7 @@ export const GaritaView: React.FC<GaritaViewProps> = () => {
                   </tr>
                 ) : (
                   filteredPersonasDentro.map((item) => (
-                    <tr key={`${item.tipoPersona}-${item.id}`}>
+                    <tr key={`${item.tipoPersona}-${item.id}`} className="persona-presente-item">
                       <td style={{ fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--cyan)' }}>
                         {item.cedula}
                       </td>
