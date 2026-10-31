@@ -16,6 +16,8 @@ import {
   Database,
 } from 'lucide-react';
 import { api } from '../services/api';
+import { useCountUp } from '../hooks/useCountUp';
+import { Skeleton } from '../components/Skeleton';
 import type { StatsSummary, HistorialRegistro } from '../types';
 import type { NavTab } from '../components/Sidebar';
 
@@ -95,6 +97,12 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
   const totalHoy = stats.entradasHoy + stats.salidasHoy || 1;
   const pctEntradas = Math.round((stats.entradasHoy / totalHoy) * 100);
   const pctSalidas = 100 - pctEntradas;
+
+  // Contadores animados con desaceleración natural (interpolación de 750ms a 60fps)
+  const animatedDentro = useCountUp(stats.dentroAhora, 750);
+  const animatedEntradas = useCountUp(stats.entradasHoy, 750);
+  const animatedSalidas = useCountUp(stats.salidasHoy, 750);
+  const animatedTotal = useCountUp(stats.totalRegistros, 800);
 
   return (
     <div className="animate-fade-in" style={{ width: '100%' }}>
@@ -181,20 +189,20 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
       )}
 
-      {/* FILA 1: 4 Tarjetas KPI reales */}
+      {/* FILA 1: 4 Tarjetas KPI reales con entrada escalonada y contadores fluidos */}
       <div className="dashboard-kpi-grid">
-        <div className="forti-card">
+        <div className="forti-card stagger-1">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <Users size={13} color="var(--cyan)" />
               Personas en Planta
             </span>
-            <span className="badge badge-admin">EN VIVO</span>
+            <span className="badge badge-admin live-beacon">EN VIVO</span>
           </div>
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
               <div className="kpi-value" style={{ color: 'var(--text-main)' }}>
-                {loading ? '—' : stats.dentroAhora}
+                {loading ? <Skeleton width="50px" height="1.6rem" /> : animatedDentro}
               </div>
               <div className="kpi-sub">Ocupación activa</div>
             </div>
@@ -204,7 +212,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="forti-card">
+        <div className="forti-card stagger-2">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <LogIn size={13} color="var(--emerald)" />
@@ -215,7 +223,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
               <div className="kpi-value" style={{ color: 'var(--emerald)' }}>
-                {loading ? '—' : stats.entradasHoy}
+                {loading ? <Skeleton width="50px" height="1.6rem" /> : animatedEntradas}
               </div>
               <div className="kpi-sub">Ingresos hoy</div>
             </div>
@@ -225,7 +233,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="forti-card">
+        <div className="forti-card stagger-3">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <LogOut size={13} color="var(--amber)" />
@@ -236,7 +244,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
               <div className="kpi-value" style={{ color: 'var(--amber)' }}>
-                {loading ? '—' : stats.salidasHoy}
+                {loading ? <Skeleton width="50px" height="1.6rem" /> : animatedSalidas}
               </div>
               <div className="kpi-sub">Egresos hoy</div>
             </div>
@@ -246,7 +254,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           </div>
         </div>
 
-        <div className="forti-card">
+        <div className="forti-card stagger-4">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <Activity size={13} color="var(--purple)" />
@@ -257,7 +265,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
           <div className="forti-card-body" style={{ display: 'flex', alignItems: 'baseline', justifyContent: 'space-between' }}>
             <div>
               <div className="kpi-value" style={{ color: 'var(--text-main)' }}>
-                {loading ? '—' : stats.totalRegistros}
+                {loading ? <Skeleton width="60px" height="1.6rem" /> : animatedTotal}
               </div>
               <div className="kpi-sub">Eventos en BD</div>
             </div>
@@ -271,7 +279,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
       {/* FILA 2: Estado real del Backend + Distribución de Flujo + Accesos Rápidos */}
       <div className="dashboard-widgets-grid">
         {/* WIDGET 1: Estado Real del Servidor y Base de Datos */}
-        <div className="forti-card">
+        <div className="forti-card stagger-5">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <Server size={14} color="var(--emerald)" />
@@ -307,7 +315,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
         </div>
 
         {/* WIDGET 2: Distribución Real de Movimientos del Día */}
-        <div className="forti-card">
+        <div className="forti-card stagger-6">
           <div className="forti-card-header">
             <span className="forti-card-title">
               <Database size={14} color="var(--cyan)" />
@@ -330,10 +338,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({ onNavigate }) => {
                 }}
               >
                 <div
+                  className="bar-grow-anim"
                   style={{
                     width: `${pctEntradas}%`,
                     background: 'var(--emerald)',
-                    transition: 'width 0.3s ease',
+                    transition: 'width 0.4s ease',
                   }}
                 />
               </div>
